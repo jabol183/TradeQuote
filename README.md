@@ -8,6 +8,19 @@ Open **TradeQuote.swiftpm** in Swift Playgrounds on an Apple Intelligence-compat
 ## Xcode
 Open `TradeQuote.swiftpm` in current Xcode on macOS. Select the TradeQuote iOS application scheme. No external libraries or API keys. For iOS 27+ the image understanding path uses multimodal Foundation Models; earlier compatible systems can still use voice-to-text and manual photo descriptions.
 
+## Build an installable app with GitHub Actions
+Every push runs `.github/workflows/build-ios.yml` on a macOS runner:
+1. runs the quote-logic tests (`swift test`);
+2. generates an Xcode project from `BuildSupport/project.yml` (XcodeGen) using the same sources as `TradeQuote.swiftpm`;
+3. archives the app without code signing and uploads **TradeQuote-unsigned.ipa** as a run artifact (Actions tab → the run → *Artifacts*).
+
+Pushing a tag such as `v1.0.0` also attaches the `.ipa` to a GitHub Release.
+
+The `.ipa` is unsigned. Install it with a tool that signs with your own Apple ID, such as Sideloadly or AltStore. A free Apple ID signature lasts 7 days. For TestFlight/App Store you need a paid developer account and signing secrets added to the workflow.
+
+## Keyboard not appearing in Swift Playgrounds
+Swift Playgrounds on iPad has a known bug where tapping a text field shows a cursor but no on-screen keyboard (and sometimes ignores a hardware keyboard). It affects the Playgrounds preview, not the app. Workarounds: disconnect/reconnect a hardware keyboard, turn off Predictive text in iPad Settings → General → Keyboard, or install the CI-built `.ipa`.
+
 ## Run portable business-logic tests
 From the repository root: `swift test` (Swift 6). The root Package.swift exposes the **same QuoteCore source code** used by the iOS app.
 
@@ -30,7 +43,7 @@ Camera, photo library, microphone, and Speech Recognition permission strings are
 - `Tests` — pure Swift quote arithmetic and gating tests.
 
 ## Verification caveat
-`swift test` checks business rules on Linux. UIKit, PhotosUI, Speech, FoundationModels, PDFKit and AppleProductTypes can only be compiled and tested on a suitable Apple toolchain/device. No iOS build or real-device test is claimed from this repository alone.
+`swift test` checks business rules. The GitHub Actions workflow compiles the full iOS app; behaviour on a real device (camera, dictation, Foundation Models) still needs testing on hardware.
 
 
 ## Swift Playgrounds compatibility (iPadOS 26/27)
@@ -38,4 +51,3 @@ Camera, photo library, microphone, and Speech Recognition permission strings are
 - `Attachment` is an image-prompting symbol introduced with the **iOS/iPadOS 27 Foundation Models SDK**. Swift Playgrounds built with the older SDK does not recognize the symbol even inside an `#available` check.
 - The image-attachment code is compiled only by Swift 6.4+ toolchains and is further guarded at runtime for iOS/iPadOS 27+. **Older toolchains keep photo capture, manually reviewing photos, speech-to-text, Foundation Models text extraction, pricing and PDF generation.** They display an informative message instead of analyzing image pixels.
 - `CaptureTile` uses an explicit `nonisolated` data-only initializer for the PhotosPicker label closure to resolve the Swift 6 actor isolation warning.
-- The full iPad app has **not** been built or run in this execution environment; re-open `TradeQuote.swiftpm` in Swift Playgrounds and compile on device.
