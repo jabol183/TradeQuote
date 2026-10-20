@@ -152,6 +152,12 @@ final class TradeQuoteStore {
         editQuote(quoteID, scopeChanged: true) { $0.photoNames.append(name) }
     }
 
+    func removePhoto(_ filename: String, from id: UUID) {
+        guard quote(id)?.photoNames.contains(filename) == true else { return }
+        editQuote(id, scopeChanged: true) { $0.photoNames.removeAll { $0 == filename } }
+        try? FileManager.default.removeItem(at: photoURL(named: filename))
+    }
+
     func saveFinalPDF(_ id: UUID) throws -> URL {
         guard var quote = quote(id) else { throw StorageError.missingQuote }
         guard quote.finalizedAt == nil, quote.status == .draft else {

@@ -90,6 +90,18 @@ enum DraftAI {
     }
 }
 
+private final class CompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    func once(_ completion: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else { return }
+        completed = true
+        completion()
+    }
+}
+
 @MainActor @Observable
 final class VoiceCapture {
     var isRecording = false
@@ -122,6 +134,17 @@ final class VoiceCapture {
         }
     }
 
+    func cancel() {
+        recorder?.stop()
+        isRecording = false
+        ticking?.invalidate()
+        ticking = nil
+        recorder = nil
+        if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
+        fileURL = nil
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+
     func stopAndTranscribe() async throws -> String {
         guard isRecording, let url = fileURL else { throw VoiceError.recordingFailed }
         recorder?.stop()
@@ -141,10 +164,11 @@ final class VoiceCapture {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
         let transcript = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let gate = CompletionGate()
             _ = recognizer.recognitionTask(with: request) { result, error in
-                if let error { continuation.resume(throwing: error) }
+                if let error { gate.once { continuation.resume(throwing: error) } }
                 else if let result, result.isFinal {
-                    continuation.resume(returning: result.bestTranscription.formattedString)
+                    gate.once { continuation.resume(returning: result.bestTranscription.formattedString) }
                 }
             }
         }

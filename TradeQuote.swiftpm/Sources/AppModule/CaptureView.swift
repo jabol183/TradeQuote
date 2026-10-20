@@ -57,7 +57,7 @@ struct CaptureView: View {
                                 .symbolRenderingMode(.hierarchical)
                                 .foregroundStyle(voice.isRecording ? .red : Theme.blue)
                                 .symbolEffect(.variableColor.iterative, isActive: voice.isRecording)
-                            Text(voice.isRecording ? "Recording 00:\(String(format: "%02d", voice.recordingSeconds))" : "Speak naturally")
+                            Text(voice.isRecording ? "Recording \(String(format: "%02d:%02d", voice.recordingSeconds / 60, voice.recordingSeconds % 60))" : "Speak naturally")
                                 .font(.callout.weight(.medium))
                             Button {
                                 Task {
@@ -136,6 +136,7 @@ struct CaptureView: View {
             }
         }
         .onAppear { noteText = store.quote(quoteID)?.notes ?? "" }
+        .onDisappear { voice.cancel() }
         .alert("Unable to complete action", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: { Text(error ?? "Unknown error") }
