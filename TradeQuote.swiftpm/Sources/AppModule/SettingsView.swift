@@ -124,7 +124,7 @@ private struct SettingsPanelView: View {
                     Label("Dictation is transcribed through Apple's on-device Speech Recognition engine.", systemImage: "waveform")
                     Text("An English (UK) on-device speech model must be installed. If it is unavailable, you can type the job description.")
                         .font(.subheadline).foregroundStyle(.secondary)
-                    Text("Use the Shortcuts app to launch TradeQuote quickly. Automatic Siri quote generation is not enabled.")
+                    Text("Say “Start a quote in TradeQuote” or use the New Trade Quote app shortcut to open the capture flow. Siri never creates a final quote or sets prices.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             case .ai:

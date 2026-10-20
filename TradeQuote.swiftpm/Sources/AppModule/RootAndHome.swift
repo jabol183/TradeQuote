@@ -13,6 +13,7 @@ struct QuoteRoute: Identifiable {
 
 struct RootView: View {
     @Environment(TradeQuoteStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
     @State private var route: QuoteRoute?
     @State private var showStoreFailure = false
@@ -41,6 +42,20 @@ struct RootView: View {
         .onChange(of: store.failureMessage) { _, value in
             showStoreFailure = value != nil
         }
+        .onAppear { handlePendingShortcut() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { handlePendingShortcut() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startNewTradeQuote)) { _ in
+            handlePendingShortcut()
+        }
+    }
+
+    private func handlePendingShortcut() {
+        guard UserDefaults.standard.bool(forKey: "TradeQuote.PendingNewQuote") else { return }
+        UserDefaults.standard.set(false, forKey: "TradeQuote.PendingNewQuote")
+        selectedTab = 0
+        newQuote()
     }
 
     private func open(_ quote: Quote) { route = QuoteRoute(quoteID: quote.id, start: quote.status == .draft ? .review : .details) }
