@@ -20,11 +20,11 @@ struct ExtractedWork {
     var title: String
     @Guide(description: "Explicit count or hours only; nil if not clearly evidenced")
     var quantity: Double?
-    @Guide(description: "Unit such as each or h")
+    @Guide(description: "Unit of the quantity", .anyOf(["each", "h", "day", "m", "m²", "set"]))
     var unit: String
-    @Guide(description: "labour or materials")
+    @Guide(description: "Whether this line is labour (work/time) or materials (parts/products)", .anyOf(["labour", "materials"]))
     var category: String
-    @Guide(description: "Missing specification or uncertainty; empty if fully explicit")
+    @Guide(description: "One short question for the contractor about a missing specification or unclear quantity. Use an empty string when nothing is unclear; never write 'None'.")
     var needsConfirmation: String
 }
 
@@ -89,13 +89,14 @@ enum DraftAI {
             let value: Decimal? = item.quantity.flatMap { qty in
                 qty.isFinite && qty > 0 && qty <= 10000 ? Decimal(qty) : nil
             }
-            let uncertainty = item.needsConfirmation.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawUncertainty = item.needsConfirmation.trimmingCharacters(in: .whitespacesAndNewlines)
+            let uncertainty = QuoteRules.isPlaceholder(rawUncertainty) ? "" : rawUncertainty
             let prompt = source == .photo ? (uncertainty.isEmpty ? "Confirm requested work and material specification from the site." : uncertainty)
             : (uncertainty.isEmpty ? nil : uncertainty)
             return QuoteLine(title: name,
                 category: item.category.lowercased() == "materials" ? .materials : .labour,
                 source: source, sourceDetail: String(evidence.prefix(250)),
-                quantity: value, unit: item.unit.isEmpty ? "each" : QuoteRules.normalizedUnit(item.unit),
+                quantity: value, unit: QuoteRules.isPlaceholder(item.unit) ? "each" : QuoteRules.normalizedUnit(item.unit),
                 confirmationPrompt: prompt)
         }
     }

@@ -23,7 +23,14 @@ final class TradeQuoteStore {
         var startupProblem: String?
         if let data = try? Data(contentsOf: Self.jsonURL),
            let restored = try? JSONDecoder().decode(AppSnapshot.self, from: data) {
-            snapshot = restored
+            var cleaned = restored
+            // Earlier builds stored the model's "None" as a confirmation question; drop it from drafts.
+            for q in cleaned.quotes.indices where cleaned.quotes[q].status == .draft {
+                cleaned.quotes[q].lines = cleaned.quotes[q].lines.map { line in
+                    line.source == .manual ? line : QuoteRules.cleanedAIPlaceholders(line)
+                }
+            }
+            snapshot = cleaned
         } else {
             // Never silently overwrite a file we could not read; keep it aside for recovery.
             if FileManager.default.fileExists(atPath: Self.jsonURL.path) {

@@ -10,6 +10,8 @@ Open `TradeQuote.swiftpm` in current Xcode on macOS. Select the TradeQuote iOS a
 
 ## Build an installable app with GitHub Actions
 Every push runs `.github/workflows/build-ios.yml` on a macOS runner:
+Both workflows use GitHub's `xcode-27` runner (iOS 27 SDK, Swift 6.4), so photo understanding works on iOS/iPadOS 27 devices. On iOS 26 it falls back to voice and typed notes.
+
 1. runs the quote-logic tests (`swift test`);
 2. generates an Xcode project from `BuildSupport/project.yml` (XcodeGen) using the same sources as `TradeQuote.swiftpm`;
 3. archives the app without code signing and uploads **TradeQuote-unsigned.ipa** as a run artifact (Actions tab → the run → *Artifacts*).

@@ -17,7 +17,7 @@ permissions:
 jobs:
   logic-tests:
     name: Quote logic tests
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Show toolchain
@@ -29,7 +29,7 @@ jobs:
 
   build:
     name: Build unsigned .ipa
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
