@@ -35,16 +35,20 @@ public enum QuoteRules {
     }
 
     public static func rate(for line: QuoteLine, in rates: [Rate]) -> Rate? {
-        rates.first(where: { $0.id == line.rateID && $0.category == line.category })
+        rates.first(where: { $0.id == line.rateID && $0.category == line.category && $0.unit == line.unit })
     }
 
     public static func pricingProblems(_ quote: Quote, rates: [Rate], business: BusinessProfile) -> [QuoteProblem] {
         var issues = reviewProblems(quote)
         if quote.reviewApprovedAt == nil { issues.append(.reviewNotApproved) }
-        if business.vatPercent == nil || (business.vatPercent ?? 0) < 0 || (business.vatPercent ?? 0) > 100 { issues.append(.missingVAT) }
+        let vat = quote.pricingApprovedAt != nil ? quote.approvedVATPercent : business.vatPercent
+        if vat == nil || (vat ?? 0) < 0 || (vat ?? 0) > 100 { issues.append(.missingVAT) }
         if quote.lines.contains(where: { line in
-            guard let rate = rate(for: line, in: rates),
-                  let price = rate.amount else { return true }
+            if quote.pricingApprovedAt != nil {
+                guard let price = line.approvedUnitPrice else { return true }
+                return price < 0
+            }
+            guard let rate = rate(for: line, in: rates), let price = rate.amount else { return true }
             return price < 0
         }) { issues.append(.missingRate) }
         return issues
@@ -77,6 +81,7 @@ public enum QuoteRules {
             quote.lines[i].approvedUnitPrice = price
         }
         quote.approvedVATPercent = vat
+        quote.approvedCurrencyCode = business.currencyCode
         quote.pricingApprovedAt = date
         return true
     }

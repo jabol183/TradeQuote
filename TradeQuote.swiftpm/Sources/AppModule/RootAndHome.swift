@@ -19,11 +19,11 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack { HomeView(open: open, newQuote: newQuote) }
+            NavigationStack { HomeView(open: open, newQuote: newQuote, selectTab: { selectedTab = $0 }) }
                 .tabItem { Label("Home", systemImage: "house.fill") }.tag(0)
             NavigationStack { QuotesListView(open: open, newQuote: newQuote) }
                 .tabItem { Label("Quotes", systemImage: "doc.text") }.tag(1)
-            NavigationStack { CustomersView() }
+            NavigationStack { CustomersView(open: open) }
                 .tabItem { Label("Customers", systemImage: "person.2") }.tag(2)
             NavigationStack { RateCardView() }
                 .tabItem { Label("Rate Card", systemImage: "sterlingsign.circle") }.tag(3)
@@ -51,6 +51,7 @@ struct HomeView: View {
     @Environment(TradeQuoteStore.self) private var store
     let open: (Quote) -> Void
     let newQuote: () -> Void
+    let selectTab: (Int) -> Void
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -73,24 +74,9 @@ struct HomeView: View {
                     homeTile("Take Photos", "Capture the job", "camera.fill", primary: true, action: newQuote)
                     homeTile("Dictate Job", "Speak naturally", "mic.fill", primary: true, action: newQuote)
                     homeTile("New Quote", "From voice or photos", "doc.badge.plus", action: newQuote)
-                    homeTile("Quotes", "View and manage", "doc.text") {
-                        // The Quotes tab contains every quote and status.
-                        if let recent = store.quotes.first { open(recent) }
-                        else { newQuote() }
-                    }
-                    homeTile("Rate Card", "Your prices and items", "tag") {
-                        // Rate Card is always available from its tab.
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                           let window = scene.windows.first, let tab = window.rootViewController as? UITabBarController {
-                            tab.selectedIndex = 3
-                        }
-                    }
-                    homeTile("Customers", "Contacts and history", "person.2.fill") {
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                           let window = scene.windows.first, let tab = window.rootViewController as? UITabBarController {
-                            tab.selectedIndex = 2
-                        }
-                    }
+                    homeTile("Quotes", "View and manage", "doc.text") { selectTab(1) }
+                    homeTile("Rate Card", "Your prices and items", "tag") { selectTab(3) }
+                    homeTile("Customers", "Contacts and history", "person.2.fill") { selectTab(2) }
                 }
 
                 HStack {

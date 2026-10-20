@@ -163,14 +163,16 @@ struct QuotePreviewView: View {
     var body: some View {
         VStack(spacing: 13) {
             if let quote = store.quote(quoteID) {
-                Picker("Customer", selection: Binding(
-                    get: { store.quote(quoteID)?.customerID },
-                    set: { value in store.editQuote(quoteID) { $0.customerID = value }; refresh() }
-                )) {
-                    Text("Select customer").tag(nil as UUID?)
-                    ForEach(store.customers) { Text($0.name).tag(Optional($0.id)) }
+                if quote.finalizedAt == nil {
+                    Picker("Customer", selection: Binding(
+                        get: { store.quote(quoteID)?.customerID },
+                        set: { value in store.editQuote(quoteID) { $0.customerID = value }; refresh() }
+                    )) {
+                        Text("Select customer").tag(nil as UUID?)
+                        ForEach(store.customers) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    .padding(.horizontal, 15)
                 }
-                .padding(.horizontal, 15)
                 if let previewData {
                     PDFSheetView(data: previewData)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
@@ -209,8 +211,11 @@ struct QuotePreviewView: View {
     }
 
     private func refresh() {
-        guard let quote = store.quote(quoteID), let vat = quote.approvedVATPercent,
-              quote.pricingApprovedAt != nil else { previewData = nil; return }
+        guard let quote = store.quote(quoteID), quote.pricingApprovedAt != nil else { previewData = nil; return }
+        if let url = store.pdfURL(quoteID), let persisted = try? Data(contentsOf: url) {
+            previewData = persisted
+            return
+        }
         let customer = store.customer(quote.customerID) ?? Customer(name: "Customer not selected")
         do {
             previewData = try QuotePDF.generate(quote: quote, business: store.business, customer: customer, rates: store.rates)
@@ -218,7 +223,6 @@ struct QuotePreviewView: View {
             previewData = nil
             self.error = error.localizedDescription
         }
-        _ = vat
     }
 }
 
@@ -312,7 +316,7 @@ struct QuoteDetailsView: View {
                             Spacer()
                             Text("\(line.quantity?.editable ?? "?") \(line.unit)")
                             if let price = line.approvedUnitPrice, let qty = line.quantity {
-                                Text(QuotePDF.money(QuoteRules.roundMoney(price * qty), store.business.currencyCode))
+                                Text(QuotePDF.money(QuoteRules.roundMoney(price * qty), quote.approvedCurrencyCode ?? store.business.currencyCode))
                             }
                         }
                         .font(.subheadline).padding(12)

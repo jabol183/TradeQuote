@@ -16,6 +16,7 @@ private enum SettingsPanel: String, Identifiable {
 struct SettingsView: View {
     @Environment(TradeQuoteStore.self) private var store
     @State private var selected: SettingsPanel?
+    @State private var showRates = false
 
     var body: some View {
         List {
@@ -51,9 +52,10 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .sheet(item: $selected) { panel in
-            NavigationStack {
-                SettingsPanelView(panel: panel)
-            }
+            NavigationStack { SettingsPanelView(panel: panel) }
+        }
+        .sheet(isPresented: $showRates) {
+            NavigationStack { RateCardView() }
         }
     }
 
@@ -61,7 +63,7 @@ struct SettingsView: View {
     private func row(_ title: String, icon: String, panel: SettingsPanel?) -> some View {
         Button {
             if let panel { selected = panel }
-            else { selected = .units }
+            else { showRates = true }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon).foregroundStyle(Theme.blue).frame(width: 23)

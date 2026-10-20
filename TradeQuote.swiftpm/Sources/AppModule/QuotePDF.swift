@@ -70,7 +70,7 @@ enum QuotePDF {
             }
 
             beginPage()
-            let currency = business.currencyCode
+            let currency = quote.approvedCurrencyCode ?? business.currencyCode
             for kind in LineCategory.allCases {
                 let group = quote.lines.filter { $0.category == kind }
                 guard !group.isEmpty else { continue }

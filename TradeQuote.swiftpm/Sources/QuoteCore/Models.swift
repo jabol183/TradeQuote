@@ -114,9 +114,10 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     public var pricingApprovedAt: Date?
     public var finalizedAt: Date?
     public var approvedVATPercent: Decimal?
+    public var approvedCurrencyCode: String?
     public var status: QuoteStatus
 
-    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, status: QuoteStatus = .draft) {
+    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft) {
         self.id = id
         self.number = number
         self.title = title
@@ -129,6 +130,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         self.pricingApprovedAt = pricingApprovedAt
         self.finalizedAt = finalizedAt
         self.approvedVATPercent = approvedVATPercent
+        self.approvedCurrencyCode = approvedCurrencyCode
         self.status = status
     }
 
@@ -137,6 +139,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         reviewApprovedAt = nil
         pricingApprovedAt = nil
         approvedVATPercent = nil
+        approvedCurrencyCode = nil
         for index in lines.indices { lines[index].approvedUnitPrice = nil }
         finalizedAt = nil
         status = .draft

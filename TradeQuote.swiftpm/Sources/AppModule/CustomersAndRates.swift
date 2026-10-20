@@ -143,7 +143,7 @@ struct RateCardView: View {
                             Spacer()
                             Text(rate.amount.map { QuotePDF.money($0, store.business.currencyCode) } ?? "Rate not set")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(rate.amount == nil ? .orange : .primary)
+                                .foregroundStyle(rate.amount == nil ? Color.orange : Color.primary)
                             Image(systemName: "ellipsis").foregroundStyle(.secondary)
                         }
                     }

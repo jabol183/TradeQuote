@@ -71,7 +71,7 @@ struct QuoteRow: View {
             VStack(alignment: .trailing, spacing: 5) {
                 if let vat = quote.approvedVATPercent,
                    let amounts = QuoteRules.totals(quote, rates: store.rates, vatPercent: vat) {
-                    Text(QuotePDF.money(amounts.total, store.business.currencyCode)).font(.subheadline.weight(.semibold))
+                    Text(QuotePDF.money(amounts.total, quote.approvedCurrencyCode ?? store.business.currencyCode)).font(.subheadline.weight(.semibold))
                 }
                 StatusLabel(status: quote.status)
             }
