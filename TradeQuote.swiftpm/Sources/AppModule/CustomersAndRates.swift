@@ -33,6 +33,12 @@ struct CustomersView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                .swipeActions {
+                    // Customers on a quote stay, so quote history and PDFs keep their recipient.
+                    if store.canDeleteCustomer(customer.id) {
+                        Button("Delete", role: .destructive) { store.deleteCustomer(customer.id) }
+                    }
+                }
             }
         }
         .searchable(text: $search)
@@ -100,13 +106,17 @@ struct CustomerEditor: View {
             Form {
                 Section("Customer") {
                     TextField("Name", text: $customer.name)
+                        .textContentType(.name)
                     TextField("Email", text: $customer.email)
                         .keyboardType(.emailAddress).textInputAutocapitalization(.never)
+                        .autocorrectionDisabled().textContentType(.emailAddress)
                     TextField("Phone", text: $customer.phone).keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
                     TextField("Postal address", text: $customer.address, axis: .vertical)
                         .lineLimit(2...5)
                 }
             }
+            .keyboardDoneButton()
             .navigationTitle("Customer")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -121,6 +131,9 @@ struct CustomerEditor: View {
 
 struct RateCardView: View {
     @Environment(TradeQuoteStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    /// True when shown as a pop-up sheet (from Pricing or Settings) rather than as a tab.
+    var showsDone = false
     @State private var category: LineCategory = .labour
     @State private var editing: Rate?
 
@@ -147,6 +160,9 @@ struct RateCardView: View {
                             Image(systemName: "ellipsis").foregroundStyle(.secondary)
                         }
                     }
+                    .swipeActions {
+                        Button("Delete", role: .destructive) { store.deleteRate(rate.id) }
+                    }
                 }
             }
             Section {
@@ -158,6 +174,9 @@ struct RateCardView: View {
         }
         .navigationTitle("Rate Card")
         .toolbar {
+            if showsDone {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { editing = Rate(name: "", category: category, unit: category == .labour ? "h" : "each") } label: {
                     Image(systemName: "plus")
@@ -195,6 +214,8 @@ struct RateEditor: View {
                         ForEach(LineCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     TextField("Unit (each, h, m…)", text: $rate.unit)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     HStack {
                         Text("Price (\(currency))")
                         Spacer()
@@ -208,6 +229,7 @@ struct RateEditor: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .keyboardDoneButton()
             .navigationTitle("Edit Rate")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

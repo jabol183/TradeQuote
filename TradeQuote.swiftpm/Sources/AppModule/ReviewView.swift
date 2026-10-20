@@ -4,6 +4,8 @@ import QuoteCore
 struct ReviewView: View {
     @Environment(TradeQuoteStore.self) private var store
     let quoteID: UUID
+    /// Set when the quote was reopened from the list, so photos or dictation can still be added.
+    var addEvidence: (() -> Void)? = nil
     let next: () -> Void
     @State private var editing: QuoteLine?
     @State private var addingCustomer = false
@@ -16,11 +18,19 @@ struct ReviewView: View {
                 Heading(text: "Review items")
                 Text("AI-organised scope is a draft. Confirm every item, quantity and material specification before pricing.")
                     .font(.subheadline).foregroundStyle(.secondary)
+                if let addEvidence {
+                    Button(action: addEvidence) {
+                        Label("Add photos or dictation", systemImage: "camera.badge.ellipsis")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
                 if let quote {
+                    // The title isn't priced scope, so renaming doesn't reset approvals.
                     TextField("Job title", text: Binding(
                         get: { store.quote(quoteID)?.title ?? "" },
-                        set: { value in store.editQuote(quoteID, scopeChanged: true) { $0.title = value } }
+                        set: { value in store.editQuote(quoteID) { $0.title = value } }
                     ))
+                    .submitLabel(.done)
                     .font(.title3.bold())
                     .padding(12)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
@@ -99,6 +109,7 @@ struct ReviewView: View {
             }
             .padding(17)
         }
+        .keyboardDoneButton()
         .background(Theme.bg)
         .navigationTitle("AI Analysis")
         .navigationBarTitleDisplayMode(.inline)
@@ -153,12 +164,14 @@ struct LineEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var line: QuoteLine
     @State private var quantityText: String
+    private let original: QuoteLine
     let canDelete: Bool
     let onSave: (QuoteLine) -> Void
     let onDelete: () -> Void
 
     init(line: QuoteLine, canDelete: Bool, onSave: @escaping (QuoteLine) -> Void, onDelete: @escaping () -> Void) {
         _line = State(initialValue: line)
+        original = line
         _quantityText = State(initialValue: line.quantity?.editable ?? "")
         self.canDelete = canDelete
         self.onSave = onSave
@@ -180,6 +193,15 @@ struct LineEditor: View {
                             .keyboardType(.decimalPad)
                         TextField("Unit (h, each, m…)", text: $line.unit)
                             .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Menu {
+                            ForEach(units, id: \.self) { unit in
+                                Button(unit) { line.unit = unit }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.up.chevron.down")
+                        }
+                        .accessibilityLabel("Choose unit")
                     }
                     TextField("Specification / material / model", text: $line.specification, axis: .vertical)
                         .lineLimit(2...5)
@@ -204,6 +226,7 @@ struct LineEditor: View {
                     Button("Delete item", role: .destructive) { onDelete(); dismiss() }
                 }
             }
+            .keyboardDoneButton()
             .navigationTitle("Edit item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -215,8 +238,10 @@ struct LineEditor: View {
                            (line.confirmationPrompt != nil && line.specification.trimmingCharacters(in: .whitespaces).isEmpty) {
                             line.isReviewed = false
                         }
-                        // Changing category may invalidate rate selection; review assigns no rates.
-                        line.rateID = nil
+                        // A different category or unit can't use the previously chosen rate.
+                        if line.category != original.category || !QuoteRules.unitsMatch(line.unit, original.unit) {
+                            line.rateID = nil
+                        }
                         line.approvedUnitPrice = nil
                         onSave(line)
                         dismiss()

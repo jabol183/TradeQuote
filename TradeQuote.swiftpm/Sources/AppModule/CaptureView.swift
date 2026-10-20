@@ -69,8 +69,8 @@ struct CaptureView: View {
                                     if voice.isRecording {
                                         do {
                                             let result = try await voice.stopAndTranscribe()
+                                            // onChange(of: noteText) saves this to the quote.
                                             noteText = [noteText, result].filter { !$0.isEmpty }.joined(separator: "\n")
-                                            store.editQuote(quoteID, scopeChanged: true) { $0.notes = noteText }
                                         } catch { report(error) }
                                     } else {
                                         do { try await voice.begin() }
@@ -96,6 +96,8 @@ struct CaptureView: View {
                         .padding(8)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
                         .onChange(of: noteText) { _, value in
+                            // Only a real edit counts; loading the saved notes must not reset approvals.
+                            guard store.quote(quoteID)?.notes != value else { return }
                             store.editQuote(quoteID, scopeChanged: true) { $0.notes = value }
                         }
                     Text("Example: Replace six sockets, install two light fittings, approximately four hours.")
@@ -108,6 +110,7 @@ struct CaptureView: View {
                         .padding(.vertical, 10)
                 }
                 ActionButton(title: "Organise draft with on-device AI", icon: "sparkles", disabled: processing || voice.isRecording, action: {
+                    UIApplication.shared.dismissKeyboard()
                     Task { await organiseDraft() }
                 })
                 Button("Continue with manual review", action: next)
@@ -118,6 +121,7 @@ struct CaptureView: View {
             }
             .padding(18)
         }
+        .keyboardDoneButton()
         .background(Theme.bg)
         .navigationTitle("Capture")
         .navigationBarTitleDisplayMode(.inline)
@@ -129,6 +133,7 @@ struct CaptureView: View {
             .ignoresSafeArea()
         }
         .onChange(of: pickedPhotos) { _, items in
+            guard !items.isEmpty else { return }
             Task {
                 for item in items {
                     do {
@@ -176,7 +181,11 @@ struct CaptureView: View {
             processingMessage = "Reviewing photo…"
             guard let image = store.photo(named: filename) else { continue }
             do { produced.append(contentsOf: try await DraftAI.extractPhoto(image, filename: filename)) }
-            catch { errors.append("Photo: \(error.localizedDescription)") }
+            catch {
+                errors.append("Photo: \(error.localizedDescription)")
+                // The same limitation applies to every remaining photo; don't repeat it six times.
+                if error is DraftAI.Failure { break }
+            }
         }
         store.editQuote(quoteID, scopeChanged: true) { draft in
             if let newTitle, !newTitle.isEmpty { draft.title = newTitle }
@@ -189,7 +198,8 @@ struct CaptureView: View {
             }
         }
         if !errors.isEmpty {
-            error = errors.joined(separator: "\n")
+            var seen = Set<String>()
+            error = errors.filter { seen.insert($0).inserted }.joined(separator: "\n")
             showError = true
         }
         if !produced.isEmpty { next() }

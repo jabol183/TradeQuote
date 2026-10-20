@@ -95,7 +95,7 @@ enum DraftAI {
             return QuoteLine(title: name,
                 category: item.category.lowercased() == "materials" ? .materials : .labour,
                 source: source, sourceDetail: String(evidence.prefix(250)),
-                quantity: value, unit: item.unit.isEmpty ? "each" : item.unit,
+                quantity: value, unit: item.unit.isEmpty ? "each" : QuoteRules.normalizedUnit(item.unit),
                 confirmationPrompt: prompt)
         }
     }
@@ -122,12 +122,11 @@ final class VoiceCapture {
     private var fileURL: URL?
 
     func begin() async throws {
-        let granted = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-        }
-        guard granted else { throw VoiceError.microphoneDenied }
-        try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default)
-        try AVAudioSession.sharedInstance().setActive(true)
+        guard !isRecording else { return }
+        guard await Self.requestMicrophone() else { throw VoiceError.microphoneDenied }
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setActive(true)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
         let recorder = try AVAudioRecorder(url: url, settings: [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -135,7 +134,10 @@ final class VoiceCapture {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ])
-        guard recorder.record() else { throw VoiceError.recordingFailed }
+        guard recorder.record() else {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            throw VoiceError.recordingFailed
+        }
         self.recorder = recorder
         fileURL = url
         recordingSeconds = 0
@@ -146,35 +148,56 @@ final class VoiceCapture {
     }
 
     func cancel() {
-        recorder?.stop()
-        isRecording = false
-        ticking?.invalidate()
-        ticking = nil
-        recorder = nil
+        guard recorder != nil || fileURL != nil else { return }
+        stopRecorder()
         if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
         fileURL = nil
-        try? AVAudioSession.sharedInstance().setActive(false)
     }
 
     func stopAndTranscribe() async throws -> String {
         guard isRecording, let url = fileURL else { throw VoiceError.recordingFailed }
+        stopRecorder()
+        fileURL = nil
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard await Self.requestSpeechAuthorization() else { throw VoiceError.speechDenied }
+        return try await Self.transcribe(url)
+    }
+
+    private func stopRecorder() {
         recorder?.stop()
+        recorder = nil
         isRecording = false
         ticking?.invalidate()
-        recorder = nil
-        defer { try? FileManager.default.removeItem(at: url) }
-        let authorized = await withCheckedContinuation { continuation in
+        ticking = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // The system calls these completion handlers on background queues. They are kept
+    // nonisolated so Swift 6 doesn't treat them as main-actor closures and trap at runtime.
+
+    nonisolated private static func requestMicrophone() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+        }
+    }
+
+    nonisolated private static func requestSpeechAuthorization() async -> Bool {
+        await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
         }
-        guard authorized else { throw VoiceError.speechDenied }
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_GB")),
-              recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
+    }
+
+    nonisolated private static func transcribe(_ url: URL) async throws -> String {
+        // Prefer UK English, but accept the device language if only that model is installed.
+        let candidates = [Locale(identifier: "en_GB"), Locale.current]
+        guard let recognizer = candidates.lazy.compactMap({ SFSpeechRecognizer(locale: $0) })
+            .first(where: { $0.isAvailable && $0.supportsOnDeviceRecognition }) else {
             throw VoiceError.onDeviceUnavailable
         }
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
-        let transcript = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let gate = CompletionGate()
             _ = recognizer.recognitionTask(with: request) { result, error in
                 if let error { gate.once { continuation.resume(throwing: error) } }
@@ -183,7 +206,6 @@ final class VoiceCapture {
                 }
             }
         }
-        return transcript
     }
 
     enum VoiceError: LocalizedError {

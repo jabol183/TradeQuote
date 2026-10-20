@@ -145,3 +145,32 @@ struct BlankState: View {
         }
     }
 }
+
+// MARK: - Keyboard
+
+extension UIApplication {
+    /// Resigns whichever text field currently owns the keyboard.
+    func dismissKeyboard() {
+        sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+private struct KeyboardDoneToolbar: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                // Number and phone pads have no return key; give every text screen a way to close the keyboard.
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { UIApplication.shared.dismissKeyboard() }
+                        .fontWeight(.semibold)
+                }
+            }
+    }
+}
+
+extension View {
+    /// Adds a "Done" button above the keyboard and lets a scroll gesture dismiss it.
+    func keyboardDoneButton() -> some View { modifier(KeyboardDoneToolbar()) }
+}

@@ -2,6 +2,7 @@ import UIKit
 import Foundation
 import QuoteCore
 
+@MainActor
 enum QuotePDF {
     enum Failure: LocalizedError {
         case incomplete
@@ -32,7 +33,16 @@ enum QuotePDF {
                 return max(18, bounds.height + 4)
             }
 
+            func footer() {
+                let saved = y
+                y = rect.height - 34
+                _ = text("Page \(page)   •   \(quote.number)   •   Contractor-approved quotation",
+                         x: margin, width: rect.width - margin * 2, size: 8, color: .gray)
+                y = saved
+            }
+
             func beginPage() {
+                if page > 0 { footer() }
                 context.beginPage()
                 page += 1
                 y = 45
@@ -40,20 +50,24 @@ enum QuotePDF {
                 _ = text("TRADEQUOTE", x: margin, width: 330, size: 19, bold: true, color: blue)
                 _ = text("QUOTATION", x: 430, width: 120, size: 13, bold: true)
                 y += 35
-                _ = text(business.name, x: margin, width: 340, size: 13, bold: true)
-                y += 22
-                _ = text([business.address, business.email, business.telephone, business.taxIdentifier].filter { !$0.isEmpty }.joined(separator: "\n"),
-                         x: margin, width: 450)
-                y += 78
+                let nameHeight = text(business.name, x: margin, width: 340, size: 13, bold: true)
+                y += nameHeight + 4
+                let contact = [business.address, business.email, business.telephone, business.taxIdentifier]
+                    .filter { !$0.isEmpty }.joined(separator: "\n")
+                let contactHeight = text(contact, x: margin, width: 450)
+                y += contactHeight + 16
                 _ = text("Quote: \(quote.number)   •   \(quote.createdAt.formatted(date: .abbreviated, time: .omitted))",
                          x: margin, width: 470, bold: true)
                 y += 28
                 _ = text("Prepared for", x: margin, width: 250, size: 9)
                 y += 17
-                _ = text(customer.name, x: margin, width: 470, size: 12, bold: true)
-                y += 19
-                _ = text(customer.address, x: margin, width: 470)
-                y += 38
+                let customerHeight = text(customer.name, x: margin, width: 470, size: 12, bold: true)
+                y += customerHeight + 1
+                if !customer.address.isEmpty {
+                    let addressHeight = text(customer.address, x: margin, width: 470)
+                    y += addressHeight
+                }
+                y += 20
                 _ = text("SCOPE", x: margin, width: 470, size: 10, bold: true)
                 y += 21
                 let line = UIBezierPath()
@@ -100,11 +114,17 @@ enum QuotePDF {
             _ = text("TOTAL", x: 362, width: 100, size: 14, bold: true)
             _ = text(money(amounts.total, currency), x: 460, width: 130, size: 14, bold: true)
             y += 49
-            _ = text("TERMS", x: margin, width: 470, bold: true)
-            y += 24
-            _ = text(business.terms, x: margin, width: 500)
-            _ = text("Page \(page)   •   Created with TradeQuote AI   •   Contractor-approved quotation",
-                     x: margin, width: 500, size: 8, color: .gray)
+            let terms = business.terms.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !terms.isEmpty {
+                let termsHeight = (terms as NSString).boundingRect(
+                    with: CGSize(width: 500, height: 2000), options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: UIFont.systemFont(ofSize: 10)], context: nil).height
+                if y + 24 + termsHeight > rect.height - 50 { beginPage() }
+                _ = text("TERMS", x: margin, width: 470, bold: true)
+                y += 24
+                _ = text(terms, x: margin, width: 500)
+            }
+            footer()
         }
     }
 

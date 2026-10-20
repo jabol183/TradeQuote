@@ -35,8 +35,27 @@ public enum QuoteRules {
         return issues
     }
 
+    /// Canonical form of a unit so "Hours", "hrs" and "h" all match the same saved rate.
+    public static func normalizedUnit(_ unit: String) -> String {
+        let key = unit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        switch key {
+        case "h", "hr", "hrs", "hour", "hours": return "h"
+        case "each", "ea", "pc", "pcs", "piece", "pieces", "item", "items", "unit", "units", "no", "x": return "each"
+        case "day", "days", "d": return "day"
+        case "m", "metre", "metres", "meter", "meters", "lm": return "m"
+        case "m2", "m²", "sqm", "sq m", "square metre", "square metres", "square meter", "square meters": return "m²"
+        case "set", "sets": return "set"
+        default: return key
+        }
+    }
+
+    public static func unitsMatch(_ a: String, _ b: String) -> Bool {
+        normalizedUnit(a) == normalizedUnit(b)
+    }
+
     public static func rate(for line: QuoteLine, in rates: [Rate]) -> Rate? {
-        rates.first(where: { $0.id == line.rateID && $0.category == line.category && $0.unit == line.unit })
+        rates.first(where: { $0.id == line.rateID && $0.category == line.category && unitsMatch($0.unit, line.unit) })
     }
 
     public static func pricingProblems(_ quote: Quote, rates: [Rate], business: BusinessProfile) -> [QuoteProblem] {
