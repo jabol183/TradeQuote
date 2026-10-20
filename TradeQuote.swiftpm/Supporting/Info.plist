@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>NSCameraUsageDescription</key><string>Photograph work that the contractor is quoting for.</string>
+<key>NSPhotoLibraryUsageDescription</key><string>Attach job photos to a quote for review.</string>
+<key>NSMicrophoneUsageDescription</key><string>Record your spoken description of the work.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Transcribe your dictation on this device into quote notes.</string>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
+</dict></plist>
