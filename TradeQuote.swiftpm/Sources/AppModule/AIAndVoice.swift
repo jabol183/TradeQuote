@@ -55,6 +55,7 @@ enum DraftAI {
     static func extractPhoto(_ image: UIImage, filename: String) async throws -> [QuoteLine] {
         guard case .available = SystemLanguageModel.default.availability else { throw Failure.unavailable }
         guard #available(iOS 27.0, *) else { throw Failure.photoNeedsNewerOS }
+        guard let cgImage = image.cgImage else { throw Failure.unavailable }
         let session = LanguageModelSession(instructions: """
             Observe the attached worksite photograph cautiously.
             A photograph alone does not constitute an instruction to install, repair or replace something.
@@ -65,7 +66,7 @@ enum DraftAI {
             """)
         let response = try await session.respond(generating: ExtractionDraft.self) {
             "Examine this worksite photo. Return observations only, never a finished quote."
-            Attachment(image, label: filename)
+            Attachment(cgImage).label(filename)
         }
         return map(response.content.items, source: .photo, evidence: filename)
     }

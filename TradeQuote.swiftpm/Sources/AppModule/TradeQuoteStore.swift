@@ -101,6 +101,8 @@ final class TradeQuoteStore {
               snapshot.quotes[index].finalizedAt != nil else { return }
         // Never pretend delivery or customer acceptance happened automatically.
         snapshot.quotes[index].status = status
+        if status == .sent { snapshot.quotes[index].sentAt = .now }
+        if status == .accepted || status == .declined { snapshot.quotes[index].responseRecordedAt = .now }
         persist()
     }
 

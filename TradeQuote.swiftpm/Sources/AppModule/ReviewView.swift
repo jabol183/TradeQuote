@@ -162,9 +162,8 @@ struct LineEditor: View {
                     HStack {
                         TextField("Quantity", text: $quantityText)
                             .keyboardType(.decimalPad)
-                        Picker("Unit", selection: $line.unit) {
-                            ForEach(units, id: \.self) { Text($0) }
-                        }
+                        TextField("Unit (h, each, m…)", text: $line.unit)
+                            .textInputAutocapitalization(.never)
                     }
                     TextField("Specification / material / model", text: $line.specification, axis: .vertical)
                         .lineLimit(2...5)

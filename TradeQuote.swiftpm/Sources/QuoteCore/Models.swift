@@ -116,8 +116,10 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     public var approvedVATPercent: Decimal?
     public var approvedCurrencyCode: String?
     public var status: QuoteStatus
+    public var sentAt: Date?
+    public var responseRecordedAt: Date?
 
-    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft) {
+    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft, sentAt: Date? = nil, responseRecordedAt: Date? = nil) {
         self.id = id
         self.number = number
         self.title = title
@@ -132,6 +134,8 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         self.approvedVATPercent = approvedVATPercent
         self.approvedCurrencyCode = approvedCurrencyCode
         self.status = status
+        self.sentAt = sentAt
+        self.responseRecordedAt = responseRecordedAt
     }
 
     /// Any scope or price selection edit invalidates previously recorded approvals.
@@ -143,6 +147,8 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         for index in lines.indices { lines[index].approvedUnitPrice = nil }
         finalizedAt = nil
         status = .draft
+        sentAt = nil
+        responseRecordedAt = nil
     }
 }
 

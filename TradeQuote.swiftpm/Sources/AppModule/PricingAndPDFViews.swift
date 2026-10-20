@@ -329,8 +329,9 @@ struct QuoteDetailsView: View {
                         if let date = quote.reviewApprovedAt { timeline("Scope approved", date) }
                         if let date = quote.pricingApprovedAt { timeline("Pricing approved", date) }
                         if let date = quote.finalizedAt { timeline("PDF generated", date) }
-                        if quote.status == .sent || quote.status == .accepted || quote.status == .declined {
-                            Label("Status recorded manually: \(quote.status.rawValue)", systemImage: "checkmark.circle")
+                        if let date = quote.sentAt { timeline("Marked as sent", date) }
+                        if let date = quote.responseRecordedAt {
+                            timeline("Customer response: \(quote.status.rawValue)", date)
                         }
                     }.font(.subheadline)
                         .frame(maxWidth: .infinity, alignment: .leading)

@@ -12,7 +12,7 @@ let package = Package(
             bundleIdentifier: "com.tradequote.ai",
             displayVersion: "1.0.0",
             bundleVersion: "1",
-            appIcon: .placeholder(icon: .bolt),
+            appIcon: .placeholder(icon: .lightningBolt),
             accentColor: .presetColor(.blue),
             supportedDeviceFamilies: [.phone, .pad],
             supportedInterfaceOrientations: [.portrait, .landscapeRight, .landscapeLeft],
