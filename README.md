@@ -31,3 +31,11 @@ Camera, photo library, microphone, and Speech Recognition permission strings are
 
 ## Verification caveat
 `swift test` checks business rules on Linux. UIKit, PhotosUI, Speech, FoundationModels, PDFKit and AppleProductTypes can only be compiled and tested on a suitable Apple toolchain/device. No iOS build or real-device test is claimed from this repository alone.
+
+
+## Swift Playgrounds compatibility (iPadOS 26/27)
+
+- `Attachment` is an image-prompting symbol introduced with the **iOS/iPadOS 27 Foundation Models SDK**. Swift Playgrounds built with the older SDK does not recognize the symbol even inside an `#available` check.
+- The image-attachment code is compiled only by Swift 6.4+ toolchains and is further guarded at runtime for iOS/iPadOS 27+. **Older toolchains keep photo capture, manually reviewing photos, speech-to-text, Foundation Models text extraction, pricing and PDF generation.** They display an informative message instead of analyzing image pixels.
+- `CaptureTile` uses an explicit `nonisolated` data-only initializer for the PhotosPicker label closure to resolve the Swift 6 actor isolation warning.
+- The full iPad app has **not** been built or run in this execution environment; re-open `TradeQuote.swiftpm` in Swift Playgrounds and compile on device.

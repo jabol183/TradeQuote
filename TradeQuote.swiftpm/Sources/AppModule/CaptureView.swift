@@ -26,11 +26,11 @@ struct CaptureView: View {
 
                 HStack(spacing: 12) {
                     Button { showCamera = true } label: {
-                        captureTile("Take Photos", "camera.fill", "Use camera")
+                        CaptureTile(title: "Take Photos", symbol: "camera.fill", subtitle: "Use camera")
                     }
                     .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
                     PhotosPicker(selection: $pickedPhotos, maxSelectionCount: 6, matching: .images) {
-                        captureTile("Photo Library", "photo.on.rectangle", "Choose photos")
+                        CaptureTile(title: "Photo Library", symbol: "photo.on.rectangle", subtitle: "Choose photos")
                     }
                 }
                 .buttonStyle(.plain)
@@ -147,16 +147,6 @@ struct CaptureView: View {
         } message: { Text(error ?? "Unknown error") }
     }
 
-    private func captureTile(_ title: String, _ symbol: String, _ subtitle: String) -> some View {
-        VStack(spacing: 9) {
-            Image(systemName: symbol).font(.system(size: 32)).foregroundStyle(Theme.blue)
-            Text(title).font(.subheadline.bold()).foregroundStyle(.primary)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 120)
-        .background(Theme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-    }
-
     private func report(_ err: Error) {
         error = err.localizedDescription
         showError = true
@@ -231,5 +221,29 @@ struct CameraPicker: UIViewControllerRepresentable {
             parent.dismiss()
         }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+private struct CaptureTile: View {
+    let title: String
+    let symbol: String
+    let subtitle: String
+
+    // PhotosPicker's label builder is @Sendable and not MainActor-isolated.
+    // This initializer stores immutable String values and never touches UI state.
+    nonisolated init(title: String, symbol: String, subtitle: String) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+    }
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Image(systemName: symbol).font(.system(size: 32)).foregroundStyle(Theme.blue)
+            Text(title).font(.subheadline.bold()).foregroundStyle(.primary)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .background(Theme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
     }
 }
