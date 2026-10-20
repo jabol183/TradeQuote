@@ -53,8 +53,12 @@ enum DraftAI {
     }
 
     static func extractPhoto(_ image: UIImage, filename: String) async throws -> [QuoteLine] {
-        guard case .available = SystemLanguageModel.default.availability else { throw Failure.unavailable }
+        // Image attachments were added in the iOS 27 SDK (Swift compiler 6.4).
+        // #available alone is not sufficient: older Playgrounds SDKs cannot even
+        // resolve the Attachment symbol during compilation.
+        #if compiler(>=6.4)
         guard #available(iOS 27.0, *) else { throw Failure.photoNeedsNewerOS }
+        guard case .available = SystemLanguageModel.default.availability else { throw Failure.unavailable }
         guard let cgImage = image.cgImage else { throw Failure.unavailable }
         let session = LanguageModelSession(instructions: """
             Observe the attached worksite photograph cautiously.
@@ -69,6 +73,10 @@ enum DraftAI {
             Attachment(cgImage).label(filename)
         }
         return map(response.content.items, source: .photo, evidence: filename)
+        #else
+        // Voice/text extraction and manual photo review remain available.
+        throw Failure.photoNeedsNewerOS
+        #endif
     }
 
     private static func map(_ items: [ExtractedWork], source: EvidenceSource, evidence: String) -> [QuoteLine] {
