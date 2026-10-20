@@ -16,7 +16,9 @@ Every push runs `.github/workflows/build-ios.yml` on a macOS runner:
 
 Pushing a tag such as `v1.0.0` also attaches the `.ipa` to a GitHub Release.
 
-The `.ipa` is unsigned. Install it with a tool that signs with your own Apple ID, such as Sideloadly or AltStore. A free Apple ID signature lasts 7 days. For TestFlight/App Store you need a paid developer account and signing secrets added to the workflow.
+The `.ipa` is unsigned. Install it with a tool that signs with your own Apple ID, such as Sideloadly or AltStore. A free Apple ID signature lasts 7 days.
+
+**TestFlight:** the separate *TestFlight* workflow signs the app and uploads it to App Store Connect. One-time setup is in [TESTFLIGHT.md](TESTFLIGHT.md).
 
 ## Keyboard not appearing in Swift Playgrounds
 Swift Playgrounds on iPad has a known bug where tapping a text field shows a cursor but no on-screen keyboard (and sometimes ignores a hardware keyboard). It affects the Playgrounds preview, not the app. Workarounds: disconnect/reconnect a hardware keyboard, turn off Predictive text in iPad Settings → General → Keyboard, or install the CI-built `.ipa`.
