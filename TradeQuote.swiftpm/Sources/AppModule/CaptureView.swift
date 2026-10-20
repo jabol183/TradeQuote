@@ -169,6 +169,7 @@ struct CaptureView: View {
         var produced: [QuoteLine] = []
         var newTitle: String?
         var errors: [String] = []
+        var photoUnsupported = false
         if !quote.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             processingMessage = "Organising dictation…"
             do {
@@ -181,7 +182,10 @@ struct CaptureView: View {
             processingMessage = "Reviewing photo…"
             guard let image = store.photo(named: filename) else { continue }
             do { produced.append(contentsOf: try await DraftAI.extractPhoto(image, filename: filename)) }
-            catch {
+            catch DraftAI.Failure.photoNeedsNewerOS {
+                photoUnsupported = true
+                break
+            } catch {
                 errors.append("Photo: \(error.localizedDescription)")
                 // The same limitation applies to every remaining photo; don't repeat it six times.
                 if error is DraftAI.Failure { break }
@@ -196,6 +200,10 @@ struct CaptureView: View {
                     $0.source == line.source && $0.sourceDetail == line.sourceDetail
                 }) { draft.lines.append(line) }
             }
+        }
+        // Older systems can't read photos; only mention it when nothing else came out of the draft.
+        if photoUnsupported && produced.isEmpty {
+            errors.append(DraftAI.Failure.photoNeedsNewerOS.localizedDescription)
         }
         if !errors.isEmpty {
             var seen = Set<String>()

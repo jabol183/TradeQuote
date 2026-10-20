@@ -70,6 +70,17 @@ final class QuoteRulesTests: XCTestCase {
         XCTAssertFalse(QuoteRules.unitsMatch("h", "each"))
     }
 
+    func testAIPlaceholdersAreCleared() {
+        let line = QuoteLine(title: "Double socket", category: .materials, source: .voice,
+                             unit: "none", specification: "None", confirmationPrompt: "None.")
+        let cleaned = QuoteRules.cleanedAIPlaceholders(line)
+        XCTAssertNil(cleaned.confirmationPrompt)
+        XCTAssertEqual(cleaned.unit, "each")
+        XCTAssertEqual(cleaned.specification, "")
+        let real = QuoteLine(title: "Light", category: .materials, source: .voice, confirmationPrompt: "Which fitting?")
+        XCTAssertEqual(QuoteRules.cleanedAIPlaceholders(real).confirmationPrompt, "Which fitting?")
+    }
+
     func testRateWithDifferentCategoryIsNotUsed() {
         let rate = Rate(name: "Socket", category: .materials, unit: "each", amount: 5)
         let line = QuoteLine(title: "Socket", category: .labour, source: .manual,

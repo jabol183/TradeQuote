@@ -50,6 +50,22 @@ public enum QuoteRules {
         }
     }
 
+    /// True for filler the model writes instead of leaving a field empty ("None", "N/A", "-", ...).
+    public static func isPlaceholder(_ text: String) -> Bool {
+        let key = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
+        return ["", "none", "n/a", "na", "null", "nil", "nothing", "unknown", "not specified",
+                "unspecified", "not applicable", "no", "empty"].contains(key)
+    }
+
+    /// Clears placeholder confirmation questions and units left by earlier AI drafts.
+    public static func cleanedAIPlaceholders(_ line: QuoteLine) -> QuoteLine {
+        var line = line
+        if let prompt = line.confirmationPrompt, isPlaceholder(prompt) { line.confirmationPrompt = nil }
+        if isPlaceholder(line.unit) { line.unit = "each" }
+        if isPlaceholder(line.specification) { line.specification = "" }
+        return line
+    }
+
     public static func unitsMatch(_ a: String, _ b: String) -> Bool {
         normalizedUnit(a) == normalizedUnit(b)
     }
