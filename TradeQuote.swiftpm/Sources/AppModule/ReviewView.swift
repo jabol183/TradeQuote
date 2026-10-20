@@ -66,7 +66,16 @@ struct ReviewView: View {
                     if !quote.photoNames.isEmpty {
                         Heading(text: "Source photos")
                         ScrollView(.horizontal) {
-                            HStack { ForEach(quote.photoNames, id: \.self) { PhotoThumb(filename: $0) } }
+                            HStack {
+                                ForEach(quote.photoNames, id: \.self) { filename in
+                                    PhotoThumb(filename: filename)
+                                        .contextMenu {
+                                            Button("Remove photo", role: .destructive) {
+                                                store.removePhoto(filename, from: quoteID)
+                                            }
+                                        }
+                                }
+                            }
                         }
                     }
 

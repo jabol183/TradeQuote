@@ -40,6 +40,11 @@ struct CaptureView: View {
                         HStack(spacing: 10) {
                             ForEach(quote.photoNames, id: \.self) { filename in
                                 PhotoThumb(filename: filename)
+                                    .contextMenu {
+                                        Button("Remove photo", role: .destructive) {
+                                            store.removePhoto(filename, from: quoteID)
+                                        }
+                                    }
                             }
                         }
                         .padding(.vertical, 3)
