@@ -154,6 +154,10 @@ final class TradeQuoteStore {
 
     func saveFinalPDF(_ id: UUID) throws -> URL {
         guard var quote = quote(id) else { throw StorageError.missingQuote }
+        guard quote.finalizedAt == nil, quote.status == .draft else {
+            if let existing = pdfURL(id) { return existing }
+            throw StorageError.notApproved("This quotation has already been finalized.")
+        }
         let problems = QuoteRules.finalizationProblems(quote, rates: rates, business: business, customers: customers)
         guard problems.isEmpty, let customer = customer(quote.customerID) else {
             throw StorageError.notApproved(problems.map(\.rawValue).joined(separator: " "))

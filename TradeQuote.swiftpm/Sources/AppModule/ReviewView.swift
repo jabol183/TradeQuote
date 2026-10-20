@@ -70,6 +70,13 @@ struct ReviewView: View {
                         }
                     }
 
+                    Toggle("I checked the materials required for this job", isOn: Binding(
+                        get: { store.quote(quoteID)?.materialsConfirmed ?? false },
+                        set: { flag in store.editQuote(quoteID, scopeChanged: true) { $0.materialsConfirmed = flag } }
+                    ))
+                    .tint(Theme.blue)
+                    .padding(14)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
                     ValidationMessages(messages: QuoteRules.reviewProblems(quote).map(\.rawValue))
                     ActionButton(title: quote.reviewApprovedAt == nil ? "Approve scope & continue" : "Continue to pricing",
                                  icon: "checkmark.shield",

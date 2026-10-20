@@ -28,6 +28,7 @@ public enum QuoteRules {
             line.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         if incomplete { issues.append(.unconfirmedItem) }
+        if !quote.materialsConfirmed { issues.append(.materialsNotReviewed) }
         if quote.lines.contains(where: {
             $0.confirmationPrompt != nil && $0.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) { issues.append(.missingSpecification) }

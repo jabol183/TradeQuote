@@ -111,6 +111,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     public var lines: [QuoteLine]
     public var createdAt: Date
     public var reviewApprovedAt: Date?
+    public var materialsConfirmed: Bool
     public var pricingApprovedAt: Date?
     public var finalizedAt: Date?
     public var approvedVATPercent: Decimal?
@@ -119,7 +120,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     public var sentAt: Date?
     public var responseRecordedAt: Date?
 
-    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft, sentAt: Date? = nil, responseRecordedAt: Date? = nil) {
+    public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, materialsConfirmed: Bool = false, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft, sentAt: Date? = nil, responseRecordedAt: Date? = nil) {
         self.id = id
         self.number = number
         self.title = title
@@ -129,6 +130,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         self.lines = lines
         self.createdAt = createdAt
         self.reviewApprovedAt = reviewApprovedAt
+        self.materialsConfirmed = materialsConfirmed
         self.pricingApprovedAt = pricingApprovedAt
         self.finalizedAt = finalizedAt
         self.approvedVATPercent = approvedVATPercent
@@ -141,6 +143,7 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     /// Any scope or price selection edit invalidates previously recorded approvals.
     public mutating func invalidateApprovals() {
         reviewApprovedAt = nil
+        materialsConfirmed = false
         pricingApprovedAt = nil
         approvedVATPercent = nil
         approvedCurrencyCode = nil
@@ -163,6 +166,7 @@ public struct AppSnapshot: Codable, Sendable {
 public enum QuoteProblem: String, Equatable, Sendable {
     case noLines = "Add at least one item."
     case unconfirmedItem = "Confirm every item and quantity."
+    case materialsNotReviewed = "Check the materials needed (including none) before approving."
     case missingSpecification = "Complete the missing specifications flagged by AI."
     case missingRate = "Select a saved rate with a price for every line."
     case reviewNotApproved = "Approve the reviewed scope first."

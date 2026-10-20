@@ -4,7 +4,7 @@ import XCTest
 final class QuoteRulesTests: XCTestCase {
     func testAbsentRatesAlwaysBlockPricing() {
         let line = QuoteLine(title: "Replace socket", category: .labour, source: .voice, quantity: 6, isReviewed: true)
-        var quote = Quote(number: "QT-1", lines: [line])
+        var quote = Quote(number: "QT-1", lines: [line], materialsConfirmed: true)
         quote.reviewApprovedAt = Date()
         var business = BusinessProfile()
         business.vatPercent = 20
@@ -24,7 +24,7 @@ final class QuoteRulesTests: XCTestCase {
         let rate = Rate(name: "Electrical labour", category: .labour, unit: "h", amount: Decimal(string:"50.00")!)
         let line = QuoteLine(title: "Electrical labour", category: .labour, source: .voice,
                              quantity: 4, unit:"h", isReviewed: true, rateID:rate.id)
-        var quote = Quote(number:"QT-3", lines:[line])
+        var quote = Quote(number:"QT-3", lines:[line], materialsConfirmed: true)
         quote.reviewApprovedAt = Date()
         var business = BusinessProfile()
         business.vatPercent = 20
@@ -45,6 +45,15 @@ final class QuoteRulesTests: XCTestCase {
         XCTAssertNil(quote.reviewApprovedAt)
         XCTAssertNil(quote.pricingApprovedAt)
         XCTAssertNil(quote.lines[0].approvedUnitPrice)
+    }
+
+    func testMaterialReviewIsRequiredEvenForLabourOnlyQuotes() {
+        var quote = Quote(number: "QT-5", lines: [
+            QuoteLine(title: "Inspection", category: .labour, source: .manual, quantity: 1, isReviewed: true)
+        ])
+        XCTAssertTrue(QuoteRules.reviewProblems(quote).contains(.materialsNotReviewed))
+        quote.materialsConfirmed = true
+        XCTAssertFalse(QuoteRules.reviewProblems(quote).contains(.materialsNotReviewed))
     }
 
     func testRounding() {
