@@ -40,11 +40,12 @@ struct PricingView: View {
 
                     if let vat = quote.approvedVATPercent ?? store.business.vatPercent,
                        let total = QuoteRules.totals(quote, rates: store.rates, vatPercent: vat) {
+                        let currency = quote.approvedCurrencyCode ?? store.business.currencyCode
                         VStack(spacing: 10) {
-                            sumRow("Subtotal", QuotePDF.money(total.subtotal, store.business.currencyCode))
-                            sumRow("VAT (\(vat.editable)%)", QuotePDF.money(total.vat, store.business.currencyCode))
+                            sumRow("Subtotal", QuotePDF.money(total.subtotal, currency))
+                            sumRow("VAT (\(vat.editable)%)", QuotePDF.money(total.vat, currency))
                             Divider()
-                            sumRow("Total", QuotePDF.money(total.total, store.business.currencyCode), strong: true)
+                            sumRow("Total", QuotePDF.money(total.total, currency), strong: true)
                         }
                         .padding(17)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 15))
@@ -71,8 +72,8 @@ struct PricingView: View {
         .background(Theme.bg)
         .navigationTitle("Pricing")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingRates) { NavigationStack { RateCardView() } }
-        .sheet(isPresented: $showingSettings) { NavigationStack { SettingsView() } }
+        .sheet(isPresented: $showingRates) { NavigationStack { RateCardView(showsDone: true) } }
+        .sheet(isPresented: $showingSettings) { NavigationStack { SettingsView(showsDone: true) } }
         .alert("Check pricing", isPresented: Binding(
             get: { error != nil },
             set: { if !$0 { error = nil } }
@@ -82,7 +83,7 @@ struct PricingView: View {
     }
 
     private func priceRow(_ line: QuoteLine) -> some View {
-        let options = store.rates.filter { $0.category == line.category && $0.unit == line.unit }
+        let options = store.rates.filter { $0.category == line.category && QuoteRules.unitsMatch($0.unit, line.unit) }
         let rate = store.rates.first { $0.id == line.rateID }
         return VStack(alignment: .leading, spacing: 9) {
             HStack {
@@ -109,6 +110,10 @@ struct PricingView: View {
                 }
             }
             .pickerStyle(.menu)
+            if options.isEmpty {
+                Text("No saved \(line.category.rawValue.lowercased()) rate is priced per \(line.unit). Add one in the rate card.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let amount = quote?.pricingApprovedAt != nil ? line.approvedUnitPrice : rate?.amount,
                let quantity = line.quantity {
                 HStack {
@@ -236,7 +241,7 @@ struct SendQuoteView: View {
                 Heading(text: "Send quote")
                 Text("Your contractor-approved PDF is ready. Share it with your customer using an app of your choice.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                if let q = store.quote(quoteID), let url = store.pdfURL(quoteID) {
+                if let q = store.quote(quoteID), let url = store.shareablePDF(quoteID) {
                     HStack {
                         Image(systemName: "doc.richtext.fill").font(.title).foregroundStyle(Theme.blue)
                         VStack(alignment: .leading) {

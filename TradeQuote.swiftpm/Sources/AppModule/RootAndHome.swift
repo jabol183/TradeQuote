@@ -42,9 +42,13 @@ struct RootView: View {
         .onChange(of: store.failureMessage) { _, value in
             showStoreFailure = value != nil
         }
-        .onAppear { handlePendingShortcut() }
+        .onAppear {
+            showStoreFailure = store.failureMessage != nil
+            handlePendingShortcut()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { handlePendingShortcut() }
+            else { store.saveNow() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .startNewTradeQuote)) { _ in
             handlePendingShortcut()
@@ -145,6 +149,7 @@ struct QuotesListView: View {
     let newQuote: () -> Void
     @State private var filter = "All"
     @State private var search = ""
+    @State private var pendingDelete: Quote?
     private let filters = ["All", "Draft", "Ready", "Sent", "Accepted", "Declined"]
 
     private var filtered: [Quote] {
@@ -165,9 +170,20 @@ struct QuotesListView: View {
             ForEach(filtered) { quote in
                 Button { open(quote) } label: { QuoteRow(quote: quote) }
                     .buttonStyle(.plain)
+                    .swipeActions {
+                        Button("Delete", role: .destructive) { pendingDelete = quote }
+                    }
             }
         }
         .searchable(text: $search)
+        .confirmationDialog("Delete this quote?", isPresented: Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        ), titleVisibility: .visible, presenting: pendingDelete) { quote in
+            Button("Delete \(quote.number)", role: .destructive) { store.deleteQuote(quote.id) }
+        } message: { _ in
+            Text("Its photos and PDF are removed from this device. This cannot be undone.")
+        }
         .overlay {
             if filtered.isEmpty { BlankState(icon: "doc.text", title: "No matching quotes", detail: "Create a quote or change your filters.") }
         }
@@ -200,9 +216,13 @@ struct QuoteFlowView: View {
     private func page(for step: FlowStep) -> some View {
         switch step {
         case .capture:
-            CaptureView(quoteID: quoteID) { steps.append(.review) }
+            CaptureView(quoteID: quoteID) {
+                // Reached from Review: go back to it instead of stacking a second Review screen.
+                if start == .capture { steps.append(.review) } else { steps.removeLast() }
+            }
         case .review:
-            ReviewView(quoteID: quoteID) { steps.append(.pricing) }
+            ReviewView(quoteID: quoteID,
+                       addEvidence: start == .review ? { steps.append(.capture) } : nil) { steps.append(.pricing) }
         case .pricing:
             PricingView(quoteID: quoteID) { steps.append(.preview) }
         case .preview:

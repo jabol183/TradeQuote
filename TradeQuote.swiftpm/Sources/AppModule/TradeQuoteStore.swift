@@ -7,6 +7,7 @@ import QuoteCore
 final class TradeQuoteStore {
     private(set) var snapshot: AppSnapshot
     var failureMessage: String?
+    @ObservationIgnored private var pendingSave: Task<Void, Never>?
 
     var quotes: [Quote] { snapshot.quotes.sorted { $0.createdAt > $1.createdAt } }
     var rates: [Rate] { snapshot.rates }
@@ -19,10 +20,18 @@ final class TradeQuoteStore {
     private static var jsonURL: URL { docs.appendingPathComponent("tradequote.json") }
 
     init() {
+        var startupProblem: String?
         if let data = try? Data(contentsOf: Self.jsonURL),
            let restored = try? JSONDecoder().decode(AppSnapshot.self, from: data) {
             snapshot = restored
         } else {
+            // Never silently overwrite a file we could not read; keep it aside for recovery.
+            if FileManager.default.fileExists(atPath: Self.jsonURL.path) {
+                let stamp = Int(Date().timeIntervalSince1970)
+                let backup = Self.docs.appendingPathComponent("tradequote-unreadable-\(stamp).json")
+                try? FileManager.default.moveItem(at: Self.jsonURL, to: backup)
+                startupProblem = "Saved data could not be read. A copy was kept as \(backup.lastPathComponent)."
+            }
             var fresh = AppSnapshot()
             fresh.rates = [
                 Rate(name: "Electrician (per hour)", category: .labour, unit: "h"),
@@ -33,6 +42,7 @@ final class TradeQuoteStore {
             ]
             snapshot = fresh
         }
+        failureMessage = startupProblem
     }
 
     func quote(_ id: UUID) -> Quote? { snapshot.quotes.first { $0.id == id } }
@@ -96,6 +106,35 @@ final class TradeQuoteStore {
         persist()
     }
 
+    func deleteRate(_ id: UUID) {
+        snapshot.rates.removeAll { $0.id == id }
+        // Draft lines that pointed at this rate must be re-priced; approved prices stay frozen.
+        for index in snapshot.quotes.indices where snapshot.quotes[index].status == .draft {
+            for line in snapshot.quotes[index].lines.indices where snapshot.quotes[index].lines[line].rateID == id {
+                snapshot.quotes[index].lines[line].rateID = nil
+            }
+        }
+        persist()
+    }
+
+    func canDeleteCustomer(_ id: UUID) -> Bool {
+        !snapshot.quotes.contains { $0.customerID == id }
+    }
+
+    func deleteCustomer(_ id: UUID) {
+        guard canDeleteCustomer(id) else { return }
+        snapshot.customers.removeAll { $0.id == id }
+        persist()
+    }
+
+    func deleteQuote(_ id: UUID) {
+        guard let quote = quote(id) else { return }
+        snapshot.quotes.removeAll { $0.id == id }
+        for name in quote.photoNames { deletePhotoFileIfUnused(name) }
+        try? FileManager.default.removeItem(at: Self.pdfFolder.appendingPathComponent("\(id.uuidString).pdf"))
+        persist()
+    }
+
     func setStatus(_ status: QuoteStatus, for id: UUID) {
         guard let index = snapshot.quotes.firstIndex(where: { $0.id == id }),
               snapshot.quotes[index].finalizedAt != nil else { return }
@@ -155,6 +194,12 @@ final class TradeQuoteStore {
     func removePhoto(_ filename: String, from id: UUID) {
         guard quote(id)?.photoNames.contains(filename) == true else { return }
         editQuote(id, scopeChanged: true) { $0.photoNames.removeAll { $0 == filename } }
+        deletePhotoFileIfUnused(filename)
+    }
+
+    /// Duplicated quotes share photo files, so only delete a file nobody references.
+    private func deletePhotoFileIfUnused(_ filename: String) {
+        guard !snapshot.quotes.contains(where: { $0.photoNames.contains(filename) }) else { return }
         try? FileManager.default.removeItem(at: photoURL(named: filename))
     }
 
@@ -169,7 +214,7 @@ final class TradeQuoteStore {
             throw StorageError.notApproved(problems.map(\.rawValue).joined(separator: " "))
         }
         let bytes = try QuotePDF.generate(quote: quote, business: business, customer: customer, rates: rates)
-        let folder = Self.docs.appendingPathComponent("PDFs", isDirectory: true)
+        let folder = Self.pdfFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("\(quote.id.uuidString).pdf")
         try bytes.write(to: url, options: .atomic)
@@ -179,19 +224,51 @@ final class TradeQuoteStore {
         return url
     }
 
+    private static var pdfFolder: URL { docs.appendingPathComponent("PDFs", isDirectory: true) }
+
     func pdfURL(_ id: UUID) -> URL? {
         guard quote(id)?.finalizedAt != nil else { return nil }
-        let url = Self.docs.appendingPathComponent("PDFs", isDirectory: true).appendingPathComponent("\(id.uuidString).pdf")
+        let url = Self.pdfFolder.appendingPathComponent("\(id.uuidString).pdf")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// A copy of the final PDF named after the quote number, so the customer doesn't receive "<UUID>.pdf".
+    func shareablePDF(_ id: UUID) -> URL? {
+        guard let source = pdfURL(id), let quote = quote(id) else { return nil }
+        let safeName = quote.number.replacingOccurrences(of: "/", with: "-")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
+        let target = folder.appendingPathComponent("\(safeName).pdf")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.copyItem(at: source, to: target)
+            return target
+        } catch {
+            return source
+        }
+    }
+
+    /// Coalesces rapid edits (e.g. typing) into one disk write shortly afterwards.
     private func persist() {
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.saveNow()
+        }
+    }
+
+    /// Writes immediately. Called when the app goes to the background.
+    func saveNow() {
+        pendingSave?.cancel()
+        pendingSave = nil
         do {
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: Self.jsonURL, options: .atomic)
-            failureMessage = nil
+            if failureMessage != nil { failureMessage = nil }
         } catch {
-            failureMessage = "Saving your data failed: \(error.localizedDescription)"
+            let message = "Saving your data failed: \(error.localizedDescription)"
+            if failureMessage != message { failureMessage = message }
         }
     }
 

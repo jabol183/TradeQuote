@@ -15,6 +15,9 @@ private enum SettingsPanel: String, Identifiable {
 
 struct SettingsView: View {
     @Environment(TradeQuoteStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    /// True when shown as a pop-up sheet (from Pricing) rather than as a tab.
+    var showsDone = false
     @State private var selected: SettingsPanel?
     @State private var showRates = false
 
@@ -51,11 +54,16 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .toolbar {
+            if showsDone {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+            }
+        }
         .sheet(item: $selected) { panel in
             NavigationStack { SettingsPanelView(panel: panel) }
         }
         .sheet(isPresented: $showRates) {
-            NavigationStack { RateCardView() }
+            NavigationStack { RateCardView(showsDone: true) }
         }
     }
 
@@ -91,6 +99,7 @@ private struct SettingsPanelView: View {
                     TextField("Trading / business name", text: $draft.name)
                     TextField("Email", text: $draft.email)
                         .keyboardType(.emailAddress).textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                     TextField("Phone", text: $draft.telephone).keyboardType(.phonePad)
                     TextField("Postal business address", text: $draft.address, axis: .vertical)
                         .lineLimit(3...6)
@@ -152,6 +161,7 @@ private struct SettingsPanelView: View {
                 }
             }
         }
+        .keyboardDoneButton()
         .navigationTitle(panel.rawValue)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

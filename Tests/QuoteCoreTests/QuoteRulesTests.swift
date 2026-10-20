@@ -60,4 +60,20 @@ final class QuoteRulesTests: XCTestCase {
         XCTAssertEqual(QuoteRules.roundMoney(Decimal(string:"1.005")!), Decimal(string:"1.01")!)
         XCTAssertEqual(QuoteRules.roundMoney(Decimal(string:"0.994")!), Decimal(string:"0.99")!)
     }
+
+    func testUnitSynonymsMatchSavedRate() {
+        let rate = Rate(name: "Labour", category: .labour, unit: "h", amount: 40)
+        let line = QuoteLine(title: "Labour", category: .labour, source: .voice,
+                             quantity: 3, unit: "Hours", isReviewed: true, rateID: rate.id)
+        XCTAssertEqual(QuoteRules.rate(for: line, in: [rate])?.id, rate.id)
+        XCTAssertTrue(QuoteRules.unitsMatch("pcs", "each"))
+        XCTAssertFalse(QuoteRules.unitsMatch("h", "each"))
+    }
+
+    func testRateWithDifferentCategoryIsNotUsed() {
+        let rate = Rate(name: "Socket", category: .materials, unit: "each", amount: 5)
+        let line = QuoteLine(title: "Socket", category: .labour, source: .manual,
+                             quantity: 1, isReviewed: true, rateID: rate.id)
+        XCTAssertNil(QuoteRules.rate(for: line, in: [rate]))
+    }
 }
