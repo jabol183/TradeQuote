@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+.DS_Store
+*.xcuserstate
+*.xcuserdata/
+# IMPORTANT: Swift Playgrounds source package is TradeQuote.swiftpm; do not ignore it.
+!TradeQuote.swiftpm/
+!TradeQuote.swiftpm/**
