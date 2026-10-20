@@ -52,9 +52,15 @@ enum DraftAI {
         return (response.content.title, map(response.content.items, source: .voice, evidence: transcript))
     }
 
+    /// Image prompting exists only in Apple SDK 27+.
+    /// Swift Playgrounds using the iPadOS 26 SDK lacks Attachment entirely,
+    /// so #available alone does not avoid the compiler error.
     static func extractPhoto(_ image: UIImage, filename: String) async throws -> [QuoteLine] {
-        guard case .available = SystemLanguageModel.default.availability else { throw Failure.unavailable }
+        #if compiler(>=6.4)
         guard #available(iOS 27.0, *) else { throw Failure.photoNeedsNewerOS }
+        guard case .available = SystemLanguageModel.default.availability else {
+            throw Failure.unavailable
+        }
         guard let cgImage = image.cgImage else { throw Failure.unavailable }
         let session = LanguageModelSession(instructions: """
             Observe the attached worksite photograph cautiously.
@@ -69,6 +75,11 @@ enum DraftAI {
             Attachment(cgImage).label(filename)
         }
         return map(response.content.items, source: .photo, evidence: filename)
+        #else
+        // The photograph is still captured and saved for manual contractor review.
+        // Voice and typed-text Foundation Models extraction remains unaffected.
+        throw Failure.photoNeedsNewerOS
+        #endif
     }
 
     private static func map(_ items: [ExtractedWork], source: EvidenceSource, evidence: String) -> [QuoteLine] {
