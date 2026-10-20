@@ -229,6 +229,14 @@ private struct CaptureTile: View {
     let symbol: String
     let subtitle: String
 
+    // PhotosPicker's label builder is @Sendable and not MainActor-isolated.
+    // This initializer stores immutable String values and never touches UI state.
+    nonisolated init(title: String, symbol: String, subtitle: String) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+    }
+
     var body: some View {
         VStack(spacing: 9) {
             Image(systemName: symbol).font(.system(size: 32)).foregroundStyle(Theme.blue)

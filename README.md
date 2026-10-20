@@ -31,8 +31,3 @@ Camera, photo library, microphone, and Speech Recognition permission strings are
 
 ## Verification caveat
 `swift test` checks business rules on Linux. UIKit, PhotosUI, Speech, FoundationModels, PDFKit and AppleProductTypes can only be compiled and tested on a suitable Apple toolchain/device. No iOS build or real-device test is claimed from this repository alone.
-
-## Swift Playgrounds compatibility (iPadOS 26 vs 27)
-- Image `Attachment` is an iPadOS 27 **SDK** API, not merely a runtime OS feature. Swift Playgrounds that ships with an older SDK cannot compile references to it. The multimodal implementation is therefore compiled only when the Swift 6.4 (Xcode 27-era) compiler is available; it additionally checks for iOS/iPadOS 27 at runtime.
-- On earlier Playgrounds SDKs, camera/photos, speech transcription, on-device Foundation Models **text extraction**, pricing and manual quote review still work. AI extraction from photo pixels displays a clear availability message. Photos are preserved for manual review and can be processed when running a 27-SDK build.
-- If Playgrounds continues to show the prior error after pulling the PR branch, close and reopen the project to refresh its compiled source cache.
