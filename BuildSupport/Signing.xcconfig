@@ -1,0 +1,7 @@
+// Default signing values for the TradeQuote app target.
+// CI overrides these on the xcodebuild command line (see .github/workflows/testflight.yml).
+TQ_BUNDLE_ID = com.tradequote.ai
+TQ_TEAM_ID =
+TQ_SIGN_STYLE = Automatic
+TQ_SIGN_IDENTITY = Apple Development
+TQ_PROFILE =
