@@ -12,6 +12,11 @@ public enum MaterialSupply: String, Codable, CaseIterable, Sendable {
 public enum ConfirmationKind: String, Codable, CaseIterable, Sendable {
     case specification = "Specification", quantity = "Quantity", supply = "Material supply", instruction = "Requested work"
 }
+public enum WorkAction: String, CaseIterable, Sendable {
+    case install = "Install", replace = "Replace", repair = "Repair", remove = "Remove"
+    case inspect = "Inspect", test = "Test", supply = "Supply", connect = "Connect"
+    case relocate = "Relocate", rewire = "Rewire", service = "Service", paint = "Paint", clean = "Clean"
+}
 public enum PhotoPurpose: String, Codable, CaseIterable, Sendable {
     case evidence = "Supporting evidence", installation = "Existing installation", replacement = "Item to replace"
     case label = "Product label", access = "Access / location"
@@ -138,10 +143,24 @@ public enum WorkflowRules {
         return line.confirmationKind == nil || line.confirmationKind == .specification || line.confirmationKind == .instruction
     }
     public static func canConfirm(_ line: QuoteLine) -> Bool {
-        !line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        line.workActionRequired != true && !line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         (line.quantity ?? 0) > 0 && !line.unit.isEmpty &&
         (!needsSpecification(line) || !line.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
         (line.recipeID == nil || line.supply != .unknown) && line.needsRateMatch != true
+    }
+    /// A manual choice establishes the missing action; captured counts/evidence stay intact.
+    public static func choosingAction(_ action: WorkAction, for original: QuoteLine) -> QuoteLine {
+        guard original.workActionRequired == true else { return original }
+        var line = original
+        line.title = action.rawValue + " " + (line.capturedWorkObject ?? line.title)
+        line.workActionRequired = false
+        line.category = action == .supply ? .materials : .labour
+        if action == .supply { line.supply = .contractor }
+        if line.confirmationKind == .instruction {
+            line.confirmationPrompt = nil; line.confirmationKind = nil
+        }
+        line.isReviewed = false; line.rateID = nil; line.approvedUnitPrice = nil
+        return line
     }
     public static func searchRecipes(_ text: String, recipes: [JobRecipe], limit: Int = 5) -> [JobRecipe] {
         let query = normalized(text)

@@ -93,6 +93,8 @@ public struct QuoteLine: Codable, Identifiable, Equatable, Sendable {
     public var optionalSelected: Bool? = nil
     public var supply: MaterialSupply? = nil
     public var confirmationKind: ConfirmationKind? = nil
+    public var workActionRequired: Bool? = nil
+    public var capturedWorkObject: String? = nil
     public var linkedPhotos: [String]? = nil
     public var needsRateMatch: Bool? = nil
     public var isRecipeContainer: Bool? = nil

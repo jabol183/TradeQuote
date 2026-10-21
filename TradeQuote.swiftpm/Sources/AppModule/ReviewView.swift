@@ -127,10 +127,17 @@ private struct ReviewItemCard: View {
                 }
                 if !line.sourceDetail.isEmpty { Text("Evidence: \(line.sourceDetail)").font(.caption).foregroundStyle(.secondary) }
                 if let room = line.room, !room.isEmpty { Text(room).font(.caption) }
-                if let question = line.confirmationPrompt, WorkflowRules.needsSpecification(line), line.specification.isEmpty {
+                if line.workActionRequired == true {
+                    Text("Choose the requested work").font(.subheadline).foregroundStyle(.orange)
+                    Menu("Install, replace or other work…") {
+                        ForEach(WorkAction.allCases, id: \.self) { action in
+                            Button(action.rawValue) { update { $0 = WorkflowRules.choosingAction(action, for: $0) } }
+                        }
+                    }
+                } else if let question = line.confirmationPrompt, WorkflowRules.needsSpecification(line), line.specification.isEmpty {
                     Button(question, action: edit).font(.subheadline)
                 }
-                if line.recipeID != nil || line.category == .materials {
+                if line.recipeID != nil || line.category == .materials || line.capturedWorkObject != nil {
                     Picker("Who supplies materials?", selection: Binding(get: { line.supply ?? .unknown }, set: { value in update { $0.supply = value } })) {
                         ForEach(MaterialSupply.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }.font(.subheadline)
@@ -177,6 +184,14 @@ struct LineEditor: View {
         NavigationStack {
             Form {
                 Section("Work and quantity") {
+                    if line.workActionRequired == true {
+                        Text("Your note names items but does not say what work to do.").foregroundStyle(.orange)
+                        Menu("Choose requested work…") {
+                            ForEach(WorkAction.allCases, id: \.self) { action in
+                                Button(action.rawValue) { line = WorkflowRules.choosingAction(action, for: line) }
+                            }
+                        }
+                    }
                     TextField("Work requested", text: $line.title)
                     Picker("Category", selection: $line.category) { ForEach(LineCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
                     HStack { TextField("Quantity", text: $quantityText).keyboardType(.decimalPad); TextField("Unit", text: $line.unit) }
@@ -193,6 +208,7 @@ struct LineEditor: View {
                     }.onChange(of: line.recipeID) { _, id in
                         guard let recipe = store.recipes.first(where: { $0.id == id }) else { return }
                         line.title = recipe.name; line.unit = recipe.unit; line.category = .labour
+                        line.workActionRequired = false
                         line.confirmationPrompt = recipe.specificationQuestion.isEmpty ? nil : recipe.specificationQuestion
                         line.confirmationKind = .specification
                         line.supply = recipe.asksSupply ? .unknown : MaterialSupply.none

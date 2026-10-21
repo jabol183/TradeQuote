@@ -27,6 +27,12 @@ public enum SourceExtraction {
         line.isApproximate = item.approximate
         line.supply = item.supply
         line.recipeID = recipe?.id
+        if item.action.isEmpty {
+            line.workActionRequired = true
+            line.capturedWorkObject = item.object
+            line.confirmationPrompt = "What work is needed? Choose an action or a job recipe."
+            line.confirmationKind = .instruction
+        }
         if let recipe {
             if !recipe.asksSupply && item.supply == .unknown { line.supply = MaterialSupply.none }
             if !recipe.specificationQuestion.isEmpty {

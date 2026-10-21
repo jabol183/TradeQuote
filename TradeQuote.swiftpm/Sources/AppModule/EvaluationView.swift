@@ -9,7 +9,7 @@ struct EvaluationView: View {
     var body: some View {
         List {
             Section {
-                Text("Runs ten fixed notes through the production extraction path. Checks item count, quantities, units, rooms, supply, optionality, exclusions and approximate hours. Apple catalogue matching is used only when needed. Customer records are unchanged.").font(.subheadline)
+                Text("Runs \(ExtractionExample.cases.count) fixed notes through the production extraction path. Checks missing actions, item count, quantities, units, rooms, supply, optionality, exclusions and approximate hours. Apple catalogue matching is used only when needed. Customer records are unchanged.").font(.subheadline)
                 Button(running ? "Running…" : "Run on this device") {
                     running = true; results = [:]
                     task = Task { @MainActor in

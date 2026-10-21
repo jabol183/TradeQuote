@@ -15,7 +15,10 @@ public struct ParsedWork: Sendable {
     public var disposition: ScopeDisposition
     public var approximate: Bool
     public var isCorrection: Bool
-    public var title: String { action.prefix(1).uppercased() + action.dropFirst() + " " + object }
+    public var title: String {
+        let text = action.isEmpty ? object : action + " " + object
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
     public var identity: String { NoteParser.objectKey(object) + "|" + WorkflowRules.normalized(room ?? "") + "|" + unit }
 }
 public struct ParsedNote: Sendable {
@@ -64,7 +67,16 @@ public enum NoteParser {
             let timeUnit = ts.firstIndex { ["h", "hr", "hrs", "hour", "hours", "day", "days"].contains($0.text) }
             var action = actionToken.map { ts[$0].text }
             if action == nil && timeUnit != nil { action = "allow" }
-            if action == nil, let previous, (firstNumber(ts) != nil || correction) { action = previous.action }
+            if action == nil, let previous, (firstNumber(ts) != nil || correction) {
+                let gap = original.substring(with: NSRange(location: NSMaxRange(previous.sourceRange),
+                    length: max(0, span.location - NSMaxRange(previous.sourceRange))))
+                // Only a connected list or an explicit correction inherits the previous verb.
+                if correction || contains("^\\s*(?:and|then)\\s*$", gap) { action = previous.action }
+            }
+            // Quantity-led shorthand is useful evidence, but does not establish an action.
+            // Review must ask the contractor instead of inventing installation/replacement.
+            let listTokens = Array(ts.drop(while: { ["optional", "optionally", "approximately", "about", "roughly"].contains($0.text) }))
+            if action == nil, firstNumber(listTokens)?.indices.lowerBound == 0 { action = "" }
             guard let request = action else {
                 warnings.append("No direct work instruction recognised in: “\(trimmed)”. Add any intended work manually.")
                 continue
@@ -123,7 +135,7 @@ public enum NoteParser {
                 if !isApproximate { isApproximate = contains("\\b(?:approximately|about|roughly)\\b", trimmed) }
             }
             var evidence = trimmed, evidenceRange = span
-            if object.isEmpty, let previous, correction || quantity != nil {
+            if object.isEmpty, let previous, correction || (!request.isEmpty && quantity != nil) {
                 object = previous.object
                 if !["h", "day"].contains(unit) { unit = previous.unit }
                 // The earlier object and the correction are both retained as literal evidence.
@@ -186,6 +198,7 @@ public enum NoteParser {
     }
 
     public static func compatible(_ recipe: JobRecipe, with item: ParsedWork) -> Bool {
+        guard !item.action.isEmpty else { return false }
         guard QuoteRules.unitsMatch(recipe.unit, item.unit) else { return false }
         if ["h", "day"].contains(item.unit) { return true }
         let recipeAction = recipe.name.lowercased().split(separator: " ").first.map(String.init) ?? ""

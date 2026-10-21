@@ -8,10 +8,12 @@ public struct ExpectedWork: Sendable {
     public var supply: MaterialSupply
     public var disposition: ScopeDisposition
     public var approximate: Bool
+    public var actionRequired: Bool
     public init(_ keyword: String, _ quantity: Decimal?, unit: String = "each", room: String? = nil,
-                supply: MaterialSupply = .unknown, disposition: ScopeDisposition = .included, approximate: Bool = false) {
+                supply: MaterialSupply = .unknown, disposition: ScopeDisposition = .included, approximate: Bool = false, actionRequired: Bool = false) {
         self.keyword = keyword; self.quantity = quantity; self.unit = unit; self.room = room
         self.supply = supply; self.disposition = disposition; self.approximate = approximate
+        self.actionRequired = actionRequired
     }
 }
 public struct ExtractionExample: Identifiable, Sendable {
@@ -30,7 +32,10 @@ public struct ExtractionExample: Identifiable, Sendable {
         .init("Decimal allowance", "Allow 1.5 hours for electrical fault finding.", [.init("labour", Decimal(string: "1.5"), unit: "h", supply: .none)]),
         .init("Exclusion", "Replace two sockets. Exclude the three light fittings from this quote.", [.init("socket", 2), .init("light", 3, disposition: .excluded)]),
         .init("No purchase inference", "Fit one customer-supplied extractor fan in the bathroom.", [.init("fan", 1, room: "bathroom", supply: .customer)]),
-        .init("No work", "The customer has not decided what work they want yet.", [])
+        .init("No work", "The customer has not decided what work they want yet.", []),
+        .init("Item list — choose action", "2 double sockets in living room\n2 light switches in the kitchen", [
+            .init("double socket", 2, room: "living room", actionRequired: true),
+            .init("light switch", 2, room: "kitchen", actionRequired: true)])
     ]
 }
 public enum ExtractionChecks {
@@ -53,6 +58,7 @@ public enum ExtractionChecks {
             if (line.supply ?? .unknown) != wanted.supply { failures.append("\(wanted.keyword): incorrect material supply.") }
             if (line.disposition ?? .included) != wanted.disposition { failures.append("\(wanted.keyword): incorrect included/optional/excluded status.") }
             if (line.isApproximate ?? false) != wanted.approximate { failures.append("\(wanted.keyword): incorrect approximation flag.") }
+            if (line.workActionRequired ?? false) != wanted.actionRequired { failures.append("\(wanted.keyword): incorrect missing-action status.") }
             if line.category != .labour { failures.append("\(wanted.keyword): invented material purchase/category.") }
         }
         if !unused.isEmpty { failures.append("Unexpected work items: " + unused.map { lines[$0].title }.joined(separator: ", ")) }

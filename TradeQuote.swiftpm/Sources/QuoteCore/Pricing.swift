@@ -24,7 +24,7 @@ public enum QuoteRules {
         var issues: [QuoteProblem] = []
         let incomplete = quote.lines.contains { line in
             line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !line.isReviewed || line.needsRateMatch == true || line.quantity == nil || (line.quantity ?? 0) <= 0 ||
+            !line.isReviewed || line.workActionRequired == true || line.needsRateMatch == true || line.quantity == nil || (line.quantity ?? 0) <= 0 ||
             line.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         if incomplete { issues.append(.unconfirmedItem) }

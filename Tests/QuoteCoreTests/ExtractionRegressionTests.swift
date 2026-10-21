@@ -2,6 +2,76 @@ import XCTest
 @testable import QuoteCore
 
 final class ExtractionRegressionTests: XCTestCase {
+    func testQuantityListsKeepFactsAndRequireAManualAction() {
+        for separator in ["\n", "; ", ", ", " and "] {
+            let note = "2 double sockets in living room" + separator + "two light switches in the kitchen"
+            let result = SourceExtraction.prepare(note, source: .voice, recipes: JobRecipe.starters)
+            XCTAssertTrue(result.warnings.isEmpty, note)
+            XCTAssertEqual(result.lines.count, 2, note)
+            XCTAssertEqual(result.lines.map(\.quantity), [2, 2])
+            XCTAssertEqual(result.lines.map(\.room), ["living room", "kitchen"])
+            XCTAssertEqual(result.lines.map(\.title), ["Double sockets", "Light switches"])
+            for line in result.lines {
+                XCTAssertEqual(line.workActionRequired, true)
+                XCTAssertEqual(line.supply, .unknown)
+                XCTAssertNil(line.recipeID, "A recipe must not choose install versus replace")
+                XCTAssertFalse(WorkflowRules.canConfirm(line))
+                XCTAssertTrue(note.contains(line.sourceDetail))
+            }
+        }
+    }
+    func testActionChoicePreservesCapturedFactsAndResetsApproval() throws {
+        let note = "2 double sockets in living room"
+        var line = try XCTUnwrap(SourceExtraction.prepare(note, source: .voice, recipes: JobRecipe.starters).lines.first)
+        line.isReviewed = true; line.rateID = UUID(); line.approvedUnitPrice = 99
+        let resolved = WorkflowRules.choosingAction(.replace, for: line)
+        XCTAssertEqual(resolved.title, "Replace double sockets")
+        XCTAssertEqual(resolved.quantity, 2)
+        XCTAssertEqual(resolved.room, "living room")
+        XCTAssertEqual(resolved.sourceDetail, note)
+        XCTAssertEqual(resolved.sourceStart, line.sourceStart)
+        XCTAssertEqual(resolved.sourceLength, line.sourceLength)
+        XCTAssertEqual(resolved.supply, .unknown)
+        XCTAssertEqual(resolved.workActionRequired, false)
+        XCTAssertNil(resolved.confirmationPrompt)
+        XCTAssertFalse(resolved.isReviewed)
+        XCTAssertNil(resolved.rateID)
+        XCTAssertNil(resolved.approvedUnitPrice)
+        XCTAssertTrue(WorkflowRules.canConfirm(resolved))
+    }
+    func testSpecificationOrReviewedFlagCannotBypassMissingAction() throws {
+        var line = try XCTUnwrap(SourceExtraction.prepare("2 sockets in kitchen", source: .note, recipes: []).lines.first)
+        line.specification = "White double sockets"; line.isReviewed = true
+        XCTAssertFalse(WorkflowRules.canConfirm(line))
+        var quote = Quote(number: "TEST"); quote.lines = [line]; quote.materialsConfirmed = true
+        XCTAssertTrue(QuoteRules.reviewProblems(quote).contains(.unconfirmedItem))
+    }
+    func testExplicitSupplyChoiceIsAMaterialPurchase() throws {
+        let line = try XCTUnwrap(SourceExtraction.prepare("2 sockets", source: .note, recipes: []).lines.first)
+        let resolved = WorkflowRules.choosingAction(.supply, for: line)
+        XCTAssertEqual(resolved.category, .materials)
+        XCTAssertEqual(resolved.supply, .contractor)
+        XCTAssertEqual(resolved.title, "Supply sockets")
+    }
+    func testNewListEntryDoesNotInheritActionAcrossASentenceOrNewline() {
+        for separator in [". ", "\n", "; "] {
+            let parsed = NoteParser.parse("Replace 2 sockets" + separator + "3 light switches")
+            XCTAssertEqual(parsed.items.map(\.action), ["replace", ""])
+        }
+        XCTAssertEqual(NoteParser.parse("Replace 2 sockets and 3 light switches").items.map(\.action), ["replace", "replace"])
+        XCTAssertEqual(NoteParser.parse("2 sockets\n3").items.count, 1)
+    }
+    func testMissingActionStateSurvivesStorageAndOldLinesRemainCompatible() throws {
+        let line = try XCTUnwrap(SourceExtraction.prepare("2 sockets", source: .note, recipes: []).lines.first)
+        let encoded = try JSONEncoder().encode(line)
+        let restored = try JSONDecoder().decode(QuoteLine.self, from: encoded)
+        XCTAssertEqual(restored.workActionRequired, true)
+        XCTAssertEqual(restored.capturedWorkObject, "sockets")
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        old.removeValue(forKey: "workActionRequired"); old.removeValue(forKey: "capturedWorkObject")
+        let legacy = try JSONDecoder().decode(QuoteLine.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(legacy.workActionRequired)
+    }
     func testEveryDeviceScreenshotScenarioThroughProductionFactPreparation() {
         for example in ExtractionExample.cases {
             let result = SourceExtraction.prepare(example.note, source: .voice, recipes: JobRecipe.starters)
