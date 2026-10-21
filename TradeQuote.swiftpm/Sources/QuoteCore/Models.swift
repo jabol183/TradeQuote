@@ -9,6 +9,7 @@ public enum EvidenceSource: String, Codable, Sendable {
     case voice = "Voice"
     case photo = "Photo"
     case manual = "Manual"
+    case note = "Typed note"
 }
 
 public enum QuoteStatus: String, Codable, CaseIterable, Sendable {
@@ -25,6 +26,11 @@ public struct Rate: Codable, Identifiable, Equatable, Sendable {
     public var category: LineCategory
     public var unit: String
     public var amount: Decimal?
+    public var aliases: [String]? = nil
+    public var productCode: String? = nil
+    public var purchaseCost: Decimal? = nil
+    public var updatedAt: Date? = nil
+    public var isFavourite: Bool? = nil
 
     public init(id: UUID = UUID(), name: String, category: LineCategory, unit: String, amount: Decimal? = nil) {
         self.id = id
@@ -78,6 +84,16 @@ public struct QuoteLine: Codable, Identifiable, Equatable, Sendable {
     public var rateID: UUID?
     /// Frozen only after contractor presses Approve pricing.
     public var approvedUnitPrice: Decimal?
+    public var recipeID: UUID? = nil
+    public var room: String? = nil
+    public var isApproximate: Bool? = nil
+    public var disposition: ScopeDisposition? = nil
+    public var optionalSelected: Bool? = nil
+    public var supply: MaterialSupply? = nil
+    public var confirmationKind: ConfirmationKind? = nil
+    public var linkedPhotos: [String]? = nil
+    public var needsRateMatch: Bool? = nil
+    public var isRecipeContainer: Bool? = nil
 
     public init(
         id: UUID = UUID(), title: String, category: LineCategory,
@@ -119,6 +135,22 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
     public var status: QuoteStatus
     public var sentAt: Date?
     public var responseRecordedAt: Date?
+    // Optional additions preserve decoding of quotations from version 1.0.
+    public var workflowVersion: Int? = nil
+    public var billingMethod: LabourBilling? = nil
+    public var fixedLabourPrice: Decimal? = nil
+    public var observations: [PhotoObservation]? = nil
+    public var voiceTranscripts: [String]? = nil
+    public var photoContexts: [PhotoContext]? = nil
+    public var versions: [QuoteVersion]? = nil
+    public var revisionOf: String? = nil
+    public var expiresAt: Date? = nil
+    public var followUpAt: Date? = nil
+    public var depositPercent: Decimal? = nil
+    public var paymentSchedule: String? = nil
+    public var approvedTerms: String? = nil
+    public var approvedBusiness: BusinessProfile? = nil
+    public var approvedCustomer: Customer? = nil
 
     public init(id: UUID = UUID(), number: String, title: String = "New quotation", customerID: UUID? = nil, notes: String = "", photoNames: [String] = [], lines: [QuoteLine] = [], createdAt: Date = Date(), reviewApprovedAt: Date? = nil, materialsConfirmed: Bool = false, pricingApprovedAt: Date? = nil, finalizedAt: Date? = nil, approvedVATPercent: Decimal? = nil, approvedCurrencyCode: String? = nil, status: QuoteStatus = .draft, sentAt: Date? = nil, responseRecordedAt: Date? = nil) {
         self.id = id
@@ -147,6 +179,9 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         pricingApprovedAt = nil
         approvedVATPercent = nil
         approvedCurrencyCode = nil
+        approvedTerms = nil
+        approvedBusiness = nil
+        approvedCustomer = nil
         for index in lines.indices { lines[index].approvedUnitPrice = nil }
         finalizedAt = nil
         status = .draft
@@ -160,6 +195,7 @@ public struct AppSnapshot: Codable, Sendable {
     public var customers: [Customer] = []
     public var rates: [Rate] = []
     public var business: BusinessProfile = BusinessProfile()
+    public var recipes: [JobRecipe]? = nil
     public init() {}
 }
 
@@ -173,5 +209,13 @@ public enum QuoteProblem: String, Equatable, Sendable {
     case pricingNotApproved = "Approve the pricing first."
     case missingBusiness = "Set business name and address in Settings."
     case missingCustomer = "Choose a customer with a name."
+    case billingOverlap = "Choose hourly, per-task or fixed labour pricing to avoid overlapping labour charges."
+    case missingHours = "Add the whole-job labour hours before approving hourly pricing."
+    case missingTaskRate = "Per-task pricing needs at least one included labour task, not only an hour allowance."
+    case missingFixedPrice = "Set the agreed fixed labour price."
+    case supplyNotConfirmed = "Confirm who supplies materials for each job recipe."
+    case invalidCommercialTerms = "Check deposit (0–100%), expiry and payment details."
+    case noIncludedWork = "Include at least one work item in the quotation."
     case missingVAT = "Set a VAT percentage (including 0% if applicable)."
 }
+

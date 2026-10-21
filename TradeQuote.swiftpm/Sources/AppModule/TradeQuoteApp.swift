@@ -26,9 +26,11 @@ extension Decimal {
 extension String {
     var asDecimal: Decimal? {
         let normalized = trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard normalized.range(of: "^-?[0-9]+([.][0-9]*)?$", options: .regularExpression) != nil else { return nil }
         return Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX"))
     }
 }
 extension Date {
     var quoteDate: String { formatted(date: .abbreviated, time: .omitted) }
 }
+

@@ -24,14 +24,16 @@ public enum QuoteRules {
         var issues: [QuoteProblem] = []
         let incomplete = quote.lines.contains { line in
             line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-            !line.isReviewed || line.quantity == nil || (line.quantity ?? 0) <= 0 ||
+            !line.isReviewed || line.needsRateMatch == true || line.quantity == nil || (line.quantity ?? 0) <= 0 ||
             line.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         if incomplete { issues.append(.unconfirmedItem) }
         if !quote.materialsConfirmed { issues.append(.materialsNotReviewed) }
         if quote.lines.contains(where: {
-            $0.confirmationPrompt != nil && $0.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            WorkflowRules.needsSpecification($0) && $0.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) { issues.append(.missingSpecification) }
+        if quote.lines.contains(where: { $0.recipeID != nil && $0.supply == .unknown }) { issues.append(.supplyNotConfirmed) }
+        if !quote.lines.contains(where: WorkflowRules.included) { issues.append(.noIncludedWork) }
         return issues
     }
 
@@ -79,7 +81,15 @@ public enum QuoteRules {
         if quote.reviewApprovedAt == nil { issues.append(.reviewNotApproved) }
         let vat = quote.pricingApprovedAt != nil ? quote.approvedVATPercent : business.vatPercent
         if vat == nil || (vat ?? 0) < 0 || (vat ?? 0) > 100 { issues.append(.missingVAT) }
-        if quote.lines.contains(where: { line in
+        let labour = quote.lines.filter { $0.category == .labour && WorkflowRules.included($0) }
+        if quote.workflowVersion == 2 && quote.billingMethod == nil && !labour.isEmpty { issues.append(.billingOverlap) }
+        if quote.billingMethod == .hourly && !labour.isEmpty && !labour.contains(where: { unitsMatch($0.unit, "h") && $0.isRecipeContainer != true }) { issues.append(.missingHours) }
+        if quote.billingMethod == .perTask && !labour.isEmpty && !labour.contains(where: { !unitsMatch($0.unit, "h") }) { issues.append(.missingTaskRate) }
+        if quote.billingMethod == nil && labour.contains(where: { unitsMatch($0.unit, "h") }) && labour.contains(where: { !unitsMatch($0.unit, "h") }) {
+            issues.append(.billingOverlap)
+        }
+        if quote.billingMethod == .fixed && (quote.fixedLabourPrice == nil || (quote.fixedLabourPrice ?? -1) < 0) { issues.append(.missingFixedPrice) }
+        if quote.lines.filter({ WorkflowRules.isChargeable($0, in: quote) }).contains(where: { line in
             if quote.pricingApprovedAt != nil {
                 guard let price = line.approvedUnitPrice else { return true }
                 return price < 0
@@ -94,7 +104,11 @@ public enum QuoteRules {
     public static func totals(_ quote: Quote, rates: [Rate], vatPercent: Decimal) -> PriceBreakdown? {
         guard vatPercent >= 0, vatPercent <= 100, !quote.lines.isEmpty else { return nil }
         var subtotal: Decimal = 0
-        for line in quote.lines {
+        if quote.billingMethod == .fixed {
+            guard let fixed = quote.fixedLabourPrice, fixed >= 0 else { return nil }
+            subtotal += roundMoney(fixed)
+        }
+        for line in quote.lines where WorkflowRules.isChargeable(line, in: quote) {
             guard let quantity = line.quantity, quantity > 0 else { return nil }
             let rateAmount: Decimal?
             if quote.pricingApprovedAt != nil {
@@ -113,11 +127,16 @@ public enum QuoteRules {
         guard pricingProblems(quote, rates: rates, business: business).isEmpty,
               let vat = business.vatPercent else { return false }
         for i in quote.lines.indices {
+            if !WorkflowRules.isChargeable(quote.lines[i], in: quote) {
+                quote.lines[i].approvedUnitPrice = 0
+                continue
+            }
             guard let price = rate(for: quote.lines[i], in: rates)?.amount else { return false }
             quote.lines[i].approvedUnitPrice = price
         }
         quote.approvedVATPercent = vat
         quote.approvedCurrencyCode = business.currencyCode
+        quote.approvedTerms = business.terms
         quote.pricingApprovedAt = date
         return true
     }
@@ -126,6 +145,7 @@ public enum QuoteRules {
         var issues = reviewProblems(quote)
         if quote.reviewApprovedAt == nil { issues.append(.reviewNotApproved) }
         if quote.pricingApprovedAt == nil || quote.approvedVATPercent == nil { issues.append(.pricingNotApproved) }
+        if let deposit = quote.depositPercent, deposit < 0 || deposit > 100 { issues.append(.invalidCommercialTerms) }
         if business.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
            business.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append(.missingBusiness)
@@ -142,3 +162,4 @@ public enum QuoteRules {
         return issues
     }
 }
+

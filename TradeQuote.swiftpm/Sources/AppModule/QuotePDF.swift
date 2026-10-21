@@ -12,6 +12,8 @@ enum QuotePDF {
     static func generate(quote: Quote, business: BusinessProfile, customer: Customer, rates: [Rate]) throws -> Data {
         guard let vat = quote.approvedVATPercent,
               let amounts = QuoteRules.totals(quote, rates: rates, vatPercent: vat) else { throw Failure.incomplete }
+        let business = quote.approvedBusiness ?? business
+        let customer = quote.approvedCustomer ?? customer
         let rect = CGRect(x: 0, y: 0, width: 595, height: 842)
         let margin: CGFloat = 45
         let renderer = UIGraphicsPDFRenderer(bounds: rect)
@@ -85,6 +87,9 @@ enum QuotePDF {
 
             beginPage()
             let currency = quote.approvedCurrencyCode ?? business.currencyCode
+            if let revision = quote.revisionOf {
+                _ = text("Revision of \(revision)", x: margin, width: 470, bold: true); y += 23
+            }
             for kind in LineCategory.allCases {
                 let group = quote.lines.filter { $0.category == kind }
                 guard !group.isEmpty else { continue }
@@ -94,14 +99,31 @@ enum QuotePDF {
                 for item in group {
                     guard let count = item.quantity, let rate = item.approvedUnitPrice else { continue }
                     if y > 705 { beginPage() }
-                    let description = item.specification.isEmpty ? item.title : "\(item.title)\n\(item.specification)"
+                    let qualifier: String
+                    if item.disposition == .excluded { qualifier = "EXCLUDED — " }
+                    else if item.disposition == .optional && item.optionalSelected != true { qualifier = "OPTIONAL (not in total) — " }
+                    else { qualifier = "" }
+                    let location = (item.room?.isEmpty == false) ? " [\(item.room!)]" : ""
+                    let supply = item.supply == .customer ? "\nCustomer supplies materials." : ""
+                    let description = qualifier + item.title + location + (item.specification.isEmpty ? "" : "\n" + item.specification) + supply
                     let lineHeight = text(description, x: margin, width: 290)
-                    _ = text("\(count.editable) \(item.unit)", x: 349, width: 58)
-                    _ = text(money(rate, currency), x: 406, width: 84)
-                    _ = text(money(QuoteRules.roundMoney(rate * count), currency), x: 490, width: 85)
+                    _ = text("\(item.isApproximate == true ? "≈ " : "")\(count.editable) \(item.unit)", x: 349, width: 58)
+                    if WorkflowRules.isChargeable(item, in: quote) {
+                        _ = text(money(rate, currency), x: 406, width: 84)
+                        _ = text(money(QuoteRules.roundMoney(rate * count), currency), x: 490, width: 85)
+                    } else {
+                        let label = !WorkflowRules.included(item) ? "Not included" : (item.category == .materials ? "No charge" : "Covered / allowance")
+                        _ = text(label, x: 406, width: 135, size: 8)
+                    }
                     y += max(32, lineHeight + 10)
                 }
                 y += 12
+            }
+            if quote.billingMethod == .fixed, let price = quote.fixedLabourPrice {
+                if y > 680 { beginPage() }
+                _ = text("Agreed fixed labour total", x: margin, width: 350, bold: true)
+                _ = text(money(price, currency), x: 490, width: 85, bold: true)
+                y += 30
             }
             if y > 625 { beginPage() }
             y += 15
@@ -114,7 +136,14 @@ enum QuotePDF {
             _ = text("TOTAL", x: 362, width: 100, size: 14, bold: true)
             _ = text(money(amounts.total, currency), x: 460, width: 130, size: 14, bold: true)
             y += 49
-            let terms = business.terms.trimmingCharacters(in: .whitespacesAndNewlines)
+            var commercial: [String] = []
+            if let expiry = quote.expiresAt { commercial.append("Valid until \(expiry.quoteDate).") }
+            if let percent = quote.depositPercent, percent > 0 {
+                commercial.append("Deposit: \(percent.editable)% (\(money(QuoteRules.roundMoney(amounts.total * percent / 100), currency))).")
+            }
+            if let schedule = quote.paymentSchedule, !schedule.isEmpty { commercial.append(schedule) }
+            commercial.append(quote.approvedTerms ?? business.terms)
+            let terms = commercial.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             if !terms.isEmpty {
                 let termsHeight = (terms as NSString).boundingRect(
                     with: CGSize(width: 500, height: 2000), options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -136,3 +165,4 @@ enum QuotePDF {
         return formatter.string(from: NSDecimalNumber(decimal: decimal)) ?? "\(decimal)"
     }
 }
+

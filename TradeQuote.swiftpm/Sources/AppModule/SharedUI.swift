@@ -92,6 +92,7 @@ struct SourceLabel: View {
         case .voice: "waveform"
         case .photo: "camera"
         case .manual: "hand.draw"
+        case .note: "text.alignleft"
         }
     }
 }
@@ -174,3 +175,4 @@ extension View {
     /// Adds a "Done" button above the keyboard and lets a scroll gesture dismiss it.
     func keyboardDoneButton() -> some View { modifier(KeyboardDoneToolbar()) }
 }
+

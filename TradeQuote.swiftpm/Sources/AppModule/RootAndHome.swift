@@ -98,6 +98,12 @@ struct HomeView: View {
                     homeTile("Customers", "Contacts and history", "person.2.fill") { selectTab(2) }
                 }
 
+                if !store.quotes.filter({ $0.status == .sent && ($0.followUpAt ?? .distantFuture) <= Date() }).isEmpty {
+                    Heading(text: "Follow up")
+                    ForEach(store.quotes.filter { $0.status == .sent && ($0.followUpAt ?? .distantFuture) <= Date() }) { quote in
+                        Button { open(quote) } label: { QuoteRow(quote: quote) }.buttonStyle(.plain)
+                    }
+                }
                 HStack {
                     Heading(text: "Recent Quotes")
                     Spacer()
@@ -234,3 +240,4 @@ struct QuoteFlowView: View {
         }
     }
 }
+
