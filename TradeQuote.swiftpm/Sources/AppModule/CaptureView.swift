@@ -135,7 +135,7 @@ struct CaptureView: View {
                             guard store.quote(quoteID)?.notes != value else { return }
                             store.editQuote(quoteID, scopeChanged: true) { $0.notes = value }
                         }
-                    Text("Example: 2 double sockets in living room; 2 light switches in the kitchen. Choose the work in Review, or say install / replace in your note.")
+                    Text("Describe the whole job naturally. Example: Two sockets in the kitchen, one switch in the living room. Replace all; parts provided by customer. Check the proposed items before applying.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 

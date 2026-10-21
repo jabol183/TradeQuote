@@ -216,7 +216,7 @@ public enum WorkflowRules {
                 continue
             }
             let matches = existing.filter { old in
-                let capturedMatch = proposed.workActionRequired == true && old.capturedWorkObject != nil &&
+                let capturedMatch = (proposed.workActionRequired == true || old.workActionRequired == true) && old.capturedWorkObject != nil &&
                     normalized(old.capturedWorkObject ?? "") == normalized(proposed.capturedWorkObject ?? "")
                 return QuoteRules.unitsMatch(old.unit, proposed.unit) &&
                 normalized(old.room ?? "") == normalized(proposed.room ?? "") &&

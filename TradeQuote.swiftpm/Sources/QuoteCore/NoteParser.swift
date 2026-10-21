@@ -50,6 +50,7 @@ public enum NoteParser {
         if cursor < original.length { spans.append(NSRange(location: cursor, length: original.length - cursor)) }
         spans = splitUnpunctuated(spans, original: original)
         var result: [ParsedWork] = [], warnings: [String] = []
+        var shared: [(text: String, range: NSRange)] = []
         var previous: ParsedWork?
         for rawSpan in spans {
             let raw = original.substring(with: rawSpan)
@@ -59,6 +60,7 @@ public enum NoteParser {
             let span = NSRange(location: rawSpan.location + leading, length: (trimmed as NSString).length)
             let ts = tokens(trimmed)
             guard !ts.isEmpty else { continue }
+            if isSharedDirective(trimmed) { shared.append((trimmed, span)); continue }
             // These are explicitly undecided observations, not requests to install anything.
             if contains("\\b(?:not decided|undecided|no work (?:requested|required)|not sure what work|considering whether)\\b", trimmed) { continue }
             if ts.first?.text == "not", !ts.contains(where: { actions.contains($0.text) }) { continue } // e.g. correction tail: "not six"
@@ -127,6 +129,7 @@ public enum NoteParser {
             body = body.filter { !fillers.contains($0.text) }
             if let at = body.firstIndex(where: { ["in", "at", "inside", "outside", "from", "not"].contains($0.text) }) { body = Array(body.prefix(at)) }
             body.removeAll { unitMap[$0.text] != nil || $0.text == "square" }
+            if body.first?.text == "of" { body.removeFirst() }
             // Strip explicit supply wording, without turning it into a material purchase.
             if let supplied = body.firstIndex(where: { ["supplies", "supply", "provides"].contains($0.text) }) { body = Array(body.prefix(supplied)) }
             var object = body.map(\.text).joined(separator: " ")
@@ -163,6 +166,34 @@ public enum NoteParser {
             }
             result.append(item); previous = item
         }
+        let sharedActions = Set(shared.compactMap { actionFact($0.text)?.action })
+        let sharedActionKeys = Set(shared.compactMap { entry -> String? in
+            guard let fact = actionFact(entry.text) else { return nil }
+            return fact.action + "|" + String(fact.excluded)
+        })
+        let sharedSupplies = Set(shared.map { supplyFact($0.text) }.filter { $0 != .unknown })
+        for index in result.indices {
+            var evidence: [NSRange] = []
+            if result[index].action.isEmpty, sharedActionKeys.count == 1, let action = sharedActions.first {
+                result[index].action = action
+                result[index].category = ["supply", "provide", "purchase"].contains(action) ? .materials : .labour
+                let instructions = shared.filter { actionFact($0.text)?.action == action }
+                if instructions.contains(where: { actionFact($0.text)?.excluded == true }) { result[index].disposition = .excluded }
+                evidence += instructions.map(\.range)
+            }
+            if result[index].supply == .unknown, sharedSupplies.count == 1, let supply = sharedSupplies.first {
+                result[index].supply = supply
+                evidence += shared.filter { supplyFact($0.text) == supply }.map(\.range)
+            }
+            if !evidence.isEmpty {
+                let begin = ([result[index].sourceRange] + evidence).map(\.location).min()!
+                let end = ([result[index].sourceRange] + evidence).map { NSMaxRange($0) }.max()!
+                result[index].sourceRange = NSRange(location: begin, length: end - begin)
+                result[index].excerpt = original.substring(with: result[index].sourceRange)
+            }
+        }
+        if sharedActionKeys.count > 1 { warnings.append("Conflicting shared work instructions need confirmation.") }
+        if sharedSupplies.count > 1 { warnings.append("Conflicting shared supply instructions need confirmation.") }
         return ParsedNote(items: result, warnings: warnings)
     }
 
@@ -173,6 +204,9 @@ public enum NoteParser {
             let ts = tokens(text)
             let verbs = ts.indices.filter { actions.contains(ts[$0].text) }
             var breaks: Set<Int> = []
+            if let firstVerb = verbs.first, firstVerb > 1, firstNumber(ts)?.indices.lowerBound == 0 {
+                breaks.insert(ts[firstVerb].range.location)
+            }
             for index in verbs.dropFirst() {
                 var location = ts[index].range.location
                 if index > 0 && ["actually", "correction", "instead"].contains(ts[index - 1].text) { location = ts[index - 1].range.location }
@@ -186,6 +220,19 @@ public enum NoteParser {
                 var start = number.indices.lowerBound
                 if start > 0 && ["approximately", "about", "roughly", "around"].contains(ts[start - 1].text) { start -= 1 }
                 if start > previousVerb + 1 { breaks.insert(ts[start].range.location) }
+            }
+            let numbers = numberMentions(ts)
+            for (previous, next) in zip(numbers, numbers.dropFirst()) {
+                let start = next.indices.lowerBound, after = next.indices.upperBound
+                guard after < ts.count, start > previous.indices.upperBound,
+                      unitMap[ts[after].text] == nil,
+                      !["room", "floor", "level", "flat", "number"].contains(ts[start - 1].text) else { continue }
+                let between = ts[previous.indices.upperBound..<start].map(\.text)
+                guard !between.contains(where: { ["with", "of", "for", "by", "not", "actually", "correction", "instead"].contains($0) }) else { continue }
+                let following = ts[after...].prefix(while: { !["in", "at", "inside", "outside"].contains($0.text) })
+                if following.contains(where: { unitMap[$0.text] == nil && !["and", "the", "a", "an"].contains($0.text) }) {
+                    breaks.insert(ts[start].range.location)
+                }
             }
             var cursor = 0
             for position in breaks.sorted() where position > cursor {
@@ -210,6 +257,37 @@ public enum NoteParser {
             if word.hasSuffix("ches") || word.hasSuffix("shes") { return String(word.dropLast(2)) }
             return word.count > 3 && word.hasSuffix("s") ? String(word.dropLast()) : word
         }.joined(separator: " ")
+    }
+    /// Parse a quoted count, not a model-generated numeric value. Ratings are not counts.
+    public static func quantityFact(_ text: String) -> (value: Decimal, unit: String, approximate: Bool)? {
+        let ts = tokens(text)
+        let numbers = numberMentions(ts)
+        if ts.count == 1, ["a", "an"].contains(ts[0].text) { return (1, "each", false) }
+        guard numbers.count == 1, let number = numbers.first, number.value > 0, number.value <= 10000 else { return nil }
+        let outside = ts.enumerated().filter { !number.indices.contains($0.offset) }.map { $0.element.text }
+        guard outside.allSatisfy({ unitMap[$0] != nil || ["approximately", "approx", "about", "roughly", "around", "square"].contains($0) }) else { return nil }
+        var unit = number.attachedUnit ?? outside.compactMap { unitMap[$0] }.first ?? "each"
+        if outside.contains("square"), unit == "m" { unit = "m²" }
+        return (number.value, unit, contains("\\b(?:approximately|approx|about|roughly|around)\\b", text))
+    }
+    public static func actionFact(_ text: String) -> (action: String, excluded: Bool)? {
+        let ts = tokens(text)
+        let found = ts.indices.filter { actions.contains(ts[$0].text) }
+        guard found.count == 1, let index = found.first else { return nil }
+        let prefix = ts.prefix(index).map(\.text).joined(separator: " ")
+        return (canonicalAction(ts[index].text), ts[index].text == "exclude" || contains("(?:do not|don't|not to|no need to|never|not)$", prefix))
+    }
+    public static func supplyFact(_ text: String) -> MaterialSupply { explicitSupply(text, materialInstruction: false) }
+    public static func isUndecided(_ text: String) -> Bool {
+        contains("\\b(?:not decided|undecided|no work (?:requested|required)|not sure what work|considering whether)\\b", text)
+    }
+    private static func isSharedDirective(_ text: String) -> Bool {
+        let collective = "(?:all(?:\\s+(?:of\\s+)?(?:the|these|those))?(?:\\s+(?:parts|items|fittings|materials))?|both(?:\\s+(?:parts|items|fittings))?|everything|them(?:\\s+all)?|all of them|(?:the\\s+)?(?:parts|materials)|these(?:\\s+(?:parts|items|fittings))?|those(?:\\s+(?:parts|items|fittings))?)"
+        let supply = "(?:(?:are\\s+)?(?:supplied|provided)\\s+by\\s+(?:the\\s+)?(?:customer|client|contractor|electrician))"
+        let verb = "(?:" + actions.joined(separator: "|") + ")"
+        return contains("^(?:please\\s+)?(?:(?:do not|don't)\\s+)?" + verb + "\\s+" + collective + "(?:\\s+" + supply + ")?$", text) ||
+            contains("^" + collective + "\\s+" + supply + "$", text) ||
+            contains("^(?:the\\s+)?(?:customer|client|contractor|electrician)\\s+(?:supplies|provides|will supply|will provide)\\s+" + collective + "$", text)
     }
     private static func canonicalAction(_ value: String) -> String {
         switch value { case "swap", "change": "replace"; case "fit", "mount", "add": "install"; case "exclude": "exclude"; default: value }

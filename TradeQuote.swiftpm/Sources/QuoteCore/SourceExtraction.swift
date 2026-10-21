@@ -17,7 +17,7 @@ public enum SourceExtraction {
     }
     public static func line(from item: ParsedWork, source: EvidenceSource, recipe: JobRecipe? = nil) -> QuoteLine {
         let recipe = recipe.flatMap { NoteParser.compatible($0, with: item) ? $0 : nil }
-        var line = QuoteLine(title: recipe?.name ?? item.title, category: item.category, source: source,
+        var line = QuoteLine(title: item.title, category: item.category, source: source,
             sourceDetail: item.excerpt, quantity: item.quantity, unit: item.unit)
         line.room = item.room
         line.sourceStart = item.sourceRange.location
@@ -27,9 +27,9 @@ public enum SourceExtraction {
         line.isApproximate = item.approximate
         line.supply = item.supply
         line.recipeID = recipe?.id
+        line.capturedWorkObject = item.object
+        line.workActionRequired = item.action.isEmpty
         if item.action.isEmpty {
-            line.workActionRequired = true
-            line.capturedWorkObject = item.object
             line.confirmationPrompt = "What work is needed? Choose an action or a job recipe."
             line.confirmationKind = .instruction
         }

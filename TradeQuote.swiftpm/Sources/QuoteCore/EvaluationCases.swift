@@ -9,11 +9,13 @@ public struct ExpectedWork: Sendable {
     public var disposition: ScopeDisposition
     public var approximate: Bool
     public var actionRequired: Bool
+    public var action: String?
     public init(_ keyword: String, _ quantity: Decimal?, unit: String = "each", room: String? = nil,
-                supply: MaterialSupply = .unknown, disposition: ScopeDisposition = .included, approximate: Bool = false, actionRequired: Bool = false) {
+                supply: MaterialSupply = .unknown, disposition: ScopeDisposition = .included, approximate: Bool = false, actionRequired: Bool = false, action: String? = nil) {
         self.keyword = keyword; self.quantity = quantity; self.unit = unit; self.room = room
         self.supply = supply; self.disposition = disposition; self.approximate = approximate
         self.actionRequired = actionRequired
+        self.action = action
     }
 }
 public struct ExtractionExample: Identifiable, Sendable {
@@ -35,8 +37,26 @@ public struct ExtractionExample: Identifiable, Sendable {
         .init("No work", "The customer has not decided what work they want yet.", []),
         .init("Item list — choose action", "2 double sockets in living room\n2 light switches in the kitchen", [
             .init("double socket", 2, room: "living room", actionRequired: true),
-            .init("light switch", 2, room: "kitchen", actionRequired: true)])
+            .init("light switch", 2, room: "kitchen", actionRequired: true)]),
+        .init("Shared instruction — screenshot", "Two double sockets in the kitchen one light switch in the living room\nReplace all parts provided by customer", [
+            .init("double socket", 2, room: "kitchen", supply: .customer, action: "replace"),
+            .init("light switch", 1, room: "living room", supply: .customer, action: "replace")]),
+        .init("Shared instruction first", "Replace all parts provided by customer. Two double sockets in the kitchen one light switch in the living room", [
+            .init("double socket", 2, room: "kitchen", supply: .customer, action: "replace"),
+            .init("light switch", 1, room: "living room", supply: .customer, action: "replace")]),
+        .init("Shared details in separate sentences", "Two double sockets in the kitchen. One light switch in the living room. Replace them all. All parts are provided by customer.", [
+            .init("double socket", 2, room: "kitchen", supply: .customer, action: "replace"),
+            .init("light switch", 1, room: "living room", supply: .customer, action: "replace")])
     ]
+    /// These cases specifically require relationship extraction on Apple hardware.
+    public static let languageCases: [ExtractionExample] = [
+        .init("Count in another sentence", "Replace the sockets in the kitchen. There are two of them. The customer will provide the parts.", [
+            .init("socket", 2, room: "kitchen", supply: .customer, action: "replace")]),
+        .init("Two distant counts", "Replace the kitchen sockets. There are two. Replace the living room switch. There is one. All parts provided by customer.", [
+            .init("socket", 2, room: "kitchen", supply: .customer, action: "replace"),
+            .init("switch", 1, room: "living room", supply: .customer, action: "replace")])
+    ]
+    public static var allCases: [ExtractionExample] { cases + languageCases }
 }
 public enum ExtractionChecks {
     /// Empty quantities are not evidence of zero work: item coverage and every fact are checked.
@@ -59,6 +79,7 @@ public enum ExtractionChecks {
             if (line.disposition ?? .included) != wanted.disposition { failures.append("\(wanted.keyword): incorrect included/optional/excluded status.") }
             if (line.isApproximate ?? false) != wanted.approximate { failures.append("\(wanted.keyword): incorrect approximation flag.") }
             if (line.workActionRequired ?? false) != wanted.actionRequired { failures.append("\(wanted.keyword): incorrect missing-action status.") }
+            if let action = wanted.action, NoteParser.actionFact(line.title)?.action != action { failures.append("\(wanted.keyword): incorrect requested work.") }
             if line.category != .labour { failures.append("\(wanted.keyword): invented material purchase/category.") }
         }
         if !unused.isEmpty { failures.append("Unexpected work items: " + unused.map { lines[$0].title }.joined(separator: ", ")) }
