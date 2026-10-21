@@ -5,12 +5,13 @@ import QuoteCore
 struct LabourBillingPanel: View {
     @Environment(TradeQuoteStore.self) private var store
     let quoteID: UUID
+    @State private var addingHours = false
     var body: some View {
         if let quote = store.quote(quoteID) {
             VStack(alignment: .leading, spacing: 10) {
                 Heading(text: "How will you charge labour?")
                 Picker("Labour billing", selection: Binding<LabourBilling?>(get: { store.quote(quoteID)?.billingMethod }, set: { method in
-                    store.editQuote(quoteID, scopeChanged: true) { $0.billingMethod = method }
+                    store.editQuote(quoteID, pricingChanged: true) { $0.billingMethod = method }
                 })) {
                     Text("Choose method").tag(nil as LabourBilling?)
                     ForEach(LabourBilling.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
@@ -20,7 +21,7 @@ struct LabourBillingPanel: View {
                     Text("Only labour-hour lines are charged. Task quantities describe the work covered by those hours.").font(.caption)
                     if !quote.lines.contains(where: { $0.category == .labour && QuoteRules.unitsMatch($0.unit, "h") && WorkflowRules.included($0) }) {
                         Button("Add whole-job labour hours") {
-                            store.saveLine(QuoteLine(title: "Whole-job labour allowance", category: .labour, source: .manual, unit: "h"), in: quoteID)
+                            addingHours = true
                         }
                     }
                 case .perTask:
@@ -28,13 +29,22 @@ struct LabourBillingPanel: View {
                 case .fixed:
                     Text("All included labour tasks are covered by one agreed labour amount. Materials are priced separately.").font(.caption)
                     DecimalEntry(title: "Fixed labour price", value: Binding(get: { store.quote(quoteID)?.fixedLabourPrice }, set: { value in
-                        store.editQuote(quoteID, scopeChanged: true) { $0.fixedLabourPrice = value }
+                        store.editQuote(quoteID, pricingChanged: true) { $0.fixedLabourPrice = value }
                     }))
                 case nil:
                     Text("Choose one method before pricing. Existing quotations retain their original amounts.").font(.caption).foregroundStyle(.orange)
                 }
             }.padding(13).background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                .sheet(isPresented: $addingHours) {
+                    LineEditor(line: hoursDraft, quoteID: quoteID, canDelete: false,
+                        onSave: { store.saveLine($0, in: quoteID); addingHours = false }, onDelete: {})
+                }
         }
+    }
+    private var hoursDraft: QuoteLine {
+        var line = QuoteLine(title: "Whole-job labour allowance", category: .labour, source: .manual, unit: "h")
+        line.supply = MaterialSupply.none
+        return line
     }
 }
 struct DecimalEntry: View {

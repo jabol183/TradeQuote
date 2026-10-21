@@ -53,7 +53,7 @@ struct RecipeEditor: View {
                     TextField("Job name", text: $recipe.name)
                     TextField("Phrases, separated by commas", text: $aliases, axis: .vertical)
                     TextField("Quantity unit", text: $recipe.unit)
-                    TextField("Required specification question", text: $recipe.specificationQuestion, axis: .vertical)
+                    TextField("Specification guidance (optional)", text: $recipe.specificationQuestion, axis: .vertical)
                     Toggle("Ask who supplies materials", isOn: $recipe.asksSupply)
                 }
                 Section("Standard wording to review for each job") {

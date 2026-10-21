@@ -138,14 +138,9 @@ public enum WorkflowRules {
         case nil: return true // Preserve approved v1 documents and old drafts.
         }
     }
-    public static func needsSpecification(_ line: QuoteLine) -> Bool {
-        guard line.confirmationPrompt != nil else { return false }
-        return line.confirmationKind == nil || line.confirmationKind == .specification || line.confirmationKind == .instruction
-    }
     public static func canConfirm(_ line: QuoteLine) -> Bool {
         line.workActionRequired != true && !line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        (line.quantity ?? 0) > 0 && !line.unit.isEmpty &&
-        (!needsSpecification(line) || !line.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
+        (line.quantity ?? 0) > 0 && !line.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         (line.recipeID == nil || line.supply != .unknown) && line.needsRateMatch != true
     }
     /// A manual choice establishes the missing action; captured counts/evidence stay intact.

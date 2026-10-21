@@ -29,9 +29,6 @@ public enum QuoteRules {
         }
         if incomplete { issues.append(.unconfirmedItem) }
         if !quote.materialsConfirmed { issues.append(.materialsNotReviewed) }
-        if quote.lines.contains(where: {
-            WorkflowRules.needsSpecification($0) && $0.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) { issues.append(.missingSpecification) }
         if quote.lines.contains(where: { $0.recipeID != nil && $0.supply == .unknown }) { issues.append(.supplyNotConfirmed) }
         if !quote.lines.contains(where: WorkflowRules.included) { issues.append(.noIncludedWork) }
         return issues
@@ -76,9 +73,9 @@ public enum QuoteRules {
         rates.first(where: { $0.id == line.rateID && $0.category == line.category && unitsMatch($0.unit, line.unit) })
     }
 
-    public static func pricingProblems(_ quote: Quote, rates: [Rate], business: BusinessProfile) -> [QuoteProblem] {
+    public static func pricingProblems(_ quote: Quote, rates: [Rate], business: BusinessProfile, requiresScopeApproval: Bool = true) -> [QuoteProblem] {
         var issues = reviewProblems(quote)
-        if quote.reviewApprovedAt == nil { issues.append(.reviewNotApproved) }
+        if requiresScopeApproval && quote.reviewApprovedAt == nil { issues.append(.reviewNotApproved) }
         let vat = quote.pricingApprovedAt != nil ? quote.approvedVATPercent : business.vatPercent
         if vat == nil || (vat ?? 0) < 0 || (vat ?? 0) > 100 { issues.append(.missingVAT) }
         let labour = quote.lines.filter { $0.category == .labour && WorkflowRules.included($0) }
@@ -138,6 +135,15 @@ public enum QuoteRules {
         quote.approvedCurrencyCode = business.currencyCode
         quote.approvedTerms = business.terms
         quote.pricingApprovedAt = date
+        return true
+    }
+    /// Explicit approval on Pricing can also approve completed scope changes in that same step.
+    public static func approveScopeAndPricing(_ quote: inout Quote, rates: [Rate], business: BusinessProfile, at date: Date = Date()) -> Bool {
+        guard quote.status == .draft, reviewProblems(quote).isEmpty else { return false }
+        var candidate = quote
+        if candidate.reviewApprovedAt == nil { candidate.reviewApprovedAt = date }
+        guard approvePricing(&candidate, rates: rates, business: business, at: date) else { return false }
+        quote = candidate
         return true
     }
 

@@ -97,23 +97,29 @@ struct ReviewView: View {
         .sheet(isPresented: $history) { VersionHistoryView(quoteID: quoteID) }
     }
 }
-private struct ReviewItemCard: View {
+struct ReviewItemCard: View {
     @Environment(TradeQuoteStore.self) private var store
     let quoteID: UUID
     let lineID: UUID
     @Binding var selected: Bool
+    var showsSelection = true
     let edit: () -> Void
+    init(quoteID: UUID, lineID: UUID, selected: Binding<Bool>, showsSelection: Bool = true, edit: @escaping () -> Void) {
+        self.quoteID = quoteID; self.lineID = lineID; self._selected = selected
+        self.showsSelection = showsSelection; self.edit = edit
+    }
     private var line: QuoteLine? { store.quote(quoteID)?.lines.first { $0.id == lineID } }
     private func update(_ change: (inout QuoteLine) -> Void) {
         guard var line else { return }
-        change(&line); line.isReviewed = false
+        let alreadyConfirmed = line.isReviewed
+        change(&line); line.isReviewed = alreadyConfirmed && WorkflowRules.canConfirm(line)
         store.saveLine(line, in: quoteID)
     }
     var body: some View {
         if let line {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Toggle("Select \(line.title)", isOn: $selected).labelsHidden()
+                    if showsSelection { Toggle("Select \(line.title)", isOn: $selected).labelsHidden() }
                     Text(line.title).font(.headline)
                     Spacer()
                     Button("Edit", action: edit)
@@ -134,8 +140,8 @@ private struct ReviewItemCard: View {
                             Button(action.rawValue) { update { $0 = WorkflowRules.choosingAction(action, for: $0) } }
                         }
                     }
-                } else if let question = line.confirmationPrompt, WorkflowRules.needsSpecification(line), line.specification.isEmpty {
-                    Button(question, action: edit).font(.subheadline)
+                } else if let question = line.confirmationPrompt, !question.isEmpty {
+                    Text("Check: \(question)").font(.caption).foregroundStyle(.secondary)
                 }
                 if line.recipeID != nil || line.category == .materials || line.capturedWorkObject != nil {
                     Picker("Who supplies materials?", selection: Binding(get: { line.supply ?? .unknown }, set: { value in update { $0.supply = value } })) {
@@ -176,8 +182,7 @@ struct LineEditor: View {
     let onSave: (QuoteLine) -> Void
     let onDelete: () -> Void
     init(line: QuoteLine, quoteID: UUID? = nil, canDelete: Bool, onSave: @escaping (QuoteLine) -> Void, onDelete: @escaping () -> Void) {
-        var draft = line; draft.isReviewed = false
-        _line = State(initialValue: draft); original = line; _quantityText = State(initialValue: line.quantity?.editable ?? "")
+        _line = State(initialValue: line); original = line; _quantityText = State(initialValue: line.quantity?.editable ?? "")
         self.quoteID = quoteID; self.canDelete = canDelete; self.onSave = onSave; self.onDelete = onDelete
     }
     var body: some View {
@@ -201,7 +206,7 @@ struct LineEditor: View {
                         ForEach(ScopeDisposition.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                 }
-                Section("Job recipe and missing details") {
+                Section("Job recipe and optional details") {
                     Picker("Recipe", selection: $line.recipeID) {
                         Text("Custom work").tag(nil as UUID?)
                         ForEach(store.recipes) { Text($0.name).tag(Optional($0.id)) }
@@ -211,11 +216,13 @@ struct LineEditor: View {
                         line.workActionRequired = false
                         line.confirmationPrompt = recipe.specificationQuestion.isEmpty ? nil : recipe.specificationQuestion
                         line.confirmationKind = .specification
-                        line.supply = recipe.asksSupply ? .unknown : MaterialSupply.none
+                        if !recipe.asksSupply { line.supply = MaterialSupply.none }
+                        else if line.supply == nil || line.supply == MaterialSupply.none { line.supply = .unknown }
                         line.needsRateMatch = false
                     }
-                    if let question = line.confirmationPrompt { Text(question).foregroundStyle(.orange) }
-                    TextField("Specification / answer", text: $line.specification, axis: .vertical).lineLimit(2...6)
+                    if let question = line.confirmationPrompt { Text("Check: \(question)").foregroundStyle(.secondary) }
+                    TextField("Extra specifications (optional)", text: $line.specification, axis: .vertical).lineLimit(2...6)
+                    Text("Add details you want included in the PDF. You can leave this blank.").font(.caption).foregroundStyle(.secondary)
                     Picker("Material supply", selection: Binding(get: { line.supply ?? .unknown }, set: { line.supply = $0 })) {
                         ForEach(MaterialSupply.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
@@ -241,7 +248,7 @@ struct LineEditor: View {
                     }
                 }
                 Section {
-                    Toggle("I verified scope, quantity and specification", isOn: $line.isReviewed)
+                    Text("Save & confirm approves this item's work, quantity and material supply. Incomplete items can be saved as drafts.").font(.caption).foregroundStyle(.secondary)
                     if let quoteID, let recipe = store.recipes.first(where: { $0.id == line.recipeID }), !recipe.components.isEmpty, canDelete {
                         Button("Save and expand configured recipe components") {
                             finish(); store.expandRecipe(for: line.id, in: quoteID)
@@ -253,14 +260,18 @@ struct LineEditor: View {
             .keyboardDoneButton().navigationTitle("Edit item").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save", action: finish).disabled(line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+                ToolbarItem(placement: .confirmationAction) { Button(canConfirmEdit ? "Save & confirm" : "Save draft", action: finish).disabled(line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
         }
     }
     private func finish() {
         line.quantity = quantityText.asDecimal
-        if !WorkflowRules.canConfirm(line) { line.isReviewed = false }
+        line.isReviewed = WorkflowRules.canConfirm(line)
         if line.category != original.category || !QuoteRules.unitsMatch(line.unit, original.unit) || line.recipeID != original.recipeID { line.rateID = nil }
-        line.approvedUnitPrice = nil; onSave(line); dismiss()
+        onSave(line); dismiss()
+    }
+    private var canConfirmEdit: Bool {
+        var draft = line; draft.quantity = quantityText.asDecimal
+        return WorkflowRules.canConfirm(draft)
     }
 }
