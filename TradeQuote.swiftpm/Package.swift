@@ -10,7 +10,7 @@ let package = Package(
             name: "TradeQuote",
             targets: ["AppModule"],
             bundleIdentifier: "com.tradequote.ai",
-            displayVersion: "1.1.0",
+            displayVersion: "1.1.4",
             bundleVersion: "1",
             appIcon: .placeholder(icon: .lightningBolt),
             accentColor: .presetColor(.blue),

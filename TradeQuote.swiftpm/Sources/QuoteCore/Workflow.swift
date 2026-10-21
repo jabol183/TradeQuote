@@ -12,6 +12,11 @@ public enum MaterialSupply: String, Codable, CaseIterable, Sendable {
 public enum ConfirmationKind: String, Codable, CaseIterable, Sendable {
     case specification = "Specification", quantity = "Quantity", supply = "Material supply", instruction = "Requested work"
 }
+public enum WorkAction: String, CaseIterable, Sendable {
+    case install = "Install", replace = "Replace", repair = "Repair", remove = "Remove"
+    case inspect = "Inspect", test = "Test", supply = "Supply", connect = "Connect"
+    case relocate = "Relocate", rewire = "Rewire", service = "Service", paint = "Paint", clean = "Clean"
+}
 public enum PhotoPurpose: String, Codable, CaseIterable, Sendable {
     case evidence = "Supporting evidence", installation = "Existing installation", replacement = "Item to replace"
     case label = "Product label", access = "Access / location"
@@ -133,15 +138,24 @@ public enum WorkflowRules {
         case nil: return true // Preserve approved v1 documents and old drafts.
         }
     }
-    public static func needsSpecification(_ line: QuoteLine) -> Bool {
-        guard line.confirmationPrompt != nil else { return false }
-        return line.confirmationKind == nil || line.confirmationKind == .specification || line.confirmationKind == .instruction
-    }
     public static func canConfirm(_ line: QuoteLine) -> Bool {
-        !line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        (line.quantity ?? 0) > 0 && !line.unit.isEmpty &&
-        (!needsSpecification(line) || !line.specification.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
+        line.workActionRequired != true && !line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (line.quantity ?? 0) > 0 && !line.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         (line.recipeID == nil || line.supply != .unknown) && line.needsRateMatch != true
+    }
+    /// A manual choice establishes the missing action; captured counts/evidence stay intact.
+    public static func choosingAction(_ action: WorkAction, for original: QuoteLine) -> QuoteLine {
+        guard original.workActionRequired == true else { return original }
+        var line = original
+        line.title = action.rawValue + " " + (line.capturedWorkObject ?? line.title)
+        line.workActionRequired = false
+        line.category = action == .supply ? .materials : .labour
+        if action == .supply { line.supply = .contractor }
+        if line.confirmationKind == .instruction {
+            line.confirmationPrompt = nil; line.confirmationKind = nil
+        }
+        line.isReviewed = false; line.rateID = nil; line.approvedUnitPrice = nil
+        return line
     }
     public static func searchRecipes(_ text: String, recipes: [JobRecipe], limit: Int = 5) -> [JobRecipe] {
         let query = normalized(text)
@@ -197,14 +211,32 @@ public enum WorkflowRules {
                 continue
             }
             let matches = existing.filter { old in
-                old.category == proposed.category && QuoteRules.unitsMatch(old.unit, proposed.unit) &&
+                let capturedMatch = (proposed.workActionRequired == true || old.workActionRequired == true) && old.capturedWorkObject != nil &&
+                    normalized(old.capturedWorkObject ?? "") == normalized(proposed.capturedWorkObject ?? "")
+                return QuoteRules.unitsMatch(old.unit, proposed.unit) &&
                 normalized(old.room ?? "") == normalized(proposed.room ?? "") &&
-                ((old.recipeID != nil && old.recipeID == proposed.recipeID) || normalized(old.title) == normalized(proposed.title))
+                (capturedMatch || (old.category == proposed.category &&
+                    ((old.recipeID != nil && old.recipeID == proposed.recipeID) || normalized(old.title) == normalized(proposed.title))))
             }
             if matches.count == 1, let old = matches.first {
-                if old.quantity == proposed.quantity && old.specification == proposed.specification &&
-                    old.disposition == proposed.disposition && old.supply == proposed.supply { continue }
                 var revised = proposed
+                // The source still omits an action; it cannot erase a manual choice made in Review.
+                if proposed.workActionRequired == true, old.workActionRequired == false {
+                    revised.title = old.title; revised.category = old.category; revised.recipeID = old.recipeID
+                    revised.workActionRequired = false
+                    revised.confirmationPrompt = old.confirmationPrompt; revised.confirmationKind = old.confirmationKind
+                    if revised.supply == .unknown || revised.supply == nil { revised.supply = old.supply }
+                }
+                // Reanalysis cannot erase details the contractor already verified just because
+                // a later note omits them. Explicit source changes still require a change preview.
+                if old.isReviewed {
+                    if revised.specification.isEmpty { revised.specification = old.specification }
+                    if revised.supply == .unknown || revised.supply == nil { revised.supply = old.supply }
+                }
+                if normalized(old.title) == normalized(revised.title) && old.category == revised.category &&
+                    old.recipeID == revised.recipeID && (old.workActionRequired ?? false) == (revised.workActionRequired ?? false) &&
+                    old.quantity == revised.quantity && old.specification == revised.specification &&
+                    (old.disposition ?? .included) == (revised.disposition ?? .included) && old.supply == revised.supply { continue }
                 revised.id = old.id
                 revised.rateID = old.rateID
                 revised.linkedPhotos = Array(Set((old.linkedPhotos ?? []) + (proposed.linkedPhotos ?? [])))

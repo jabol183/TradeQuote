@@ -9,27 +9,25 @@ struct EvaluationView: View {
     var body: some View {
         List {
             Section {
-                Text("Runs ten fixed sample notes through the existing on-device model. No customer records are used or changed. Quantity checks are a diagnostic; inspect scope, supply and exclusions yourself.").font(.subheadline)
+                Text("Runs \(ExtractionExample.allCases.count) fixed notes through whole-note Apple AI and source validation. Checks work descriptions, missing actions, item count, quantities, units, rooms, supply, optionality, exclusions and hours. Each result identifies whether AI or fallback parsing ran. Customer records are unchanged.").font(.subheadline)
                 Button(running ? "Running…" : "Run on this device") {
                     running = true; results = [:]
                     task = Task { @MainActor in
                         defer { running = false }
-                        for example in ExtractionExample.cases {
+                        for example in ExtractionExample.allCases {
                             if Task.isCancelled { return }
                             let started = Date()
                             do {
                                 let result = try await DraftAI.extractVoice(example.note, source: .note, recipes: store.recipes, existing: [])
-                                let quantities = result.changes.compactMap { $0.line.quantity }.sorted()
-                                let expected = example.quantities.sorted()
-                                let summary = result.changes.map { "\($0.line.title): \($0.line.quantity?.editable ?? "?") \($0.line.unit), \($0.line.disposition?.rawValue ?? "Included"), supply \($0.line.supply?.rawValue ?? "unknown")" }.joined(separator: "\n")
-                                let match = quantities == expected
-                                results[example.id] = "\(match ? "Quantity check passed" : "Quantity mismatch — inspect output") · \(String(format: "%.1f", Date().timeIntervalSince(started)))s\n\(summary)\n\(result.warnings.joined(separator: "\n"))"
+                                let failures = ExtractionChecks.problems(result.changes.map(\.line), expected: example.expected)
+                                let summary = result.changes.map { "\($0.line.title): \($0.line.quantity?.editable ?? "?") \($0.line.unit), \($0.line.disposition?.rawValue ?? "Included"), supply \($0.line.supply?.rawValue ?? "unknown"), room \($0.line.room ?? "—"), approximate \($0.line.isApproximate == true ? "yes" : "no")" }.joined(separator: "\n")
+                                results[example.id] = "\(failures.isEmpty ? "All fact checks passed" : "FAILED: " + failures.joined(separator: " ")) · \(String(format: "%.1f", Date().timeIntervalSince(started)))s\n\(result.interpretation)\n\(summary)\n\(result.warnings.joined(separator: "\n"))"
                             } catch { results[example.id] = error.localizedDescription }
                         }
                     }
                 }.disabled(running)
             }
-            ForEach(ExtractionExample.cases) { example in
+            ForEach(ExtractionExample.allCases) { example in
                 Section(example.id) {
                     Text(example.note).font(.subheadline)
                     Text(results[example.id] ?? "Not run").font(.caption).foregroundStyle(.secondary)

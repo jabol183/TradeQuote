@@ -73,11 +73,10 @@ final class TradeQuoteStore {
         return new.id
     }
 
-    func editQuote(_ id: UUID, scopeChanged: Bool = false, _ change: (inout Quote) -> Void) {
+    func editQuote(_ id: UUID, scopeChanged: Bool = false, pricingChanged: Bool = false, _ change: (inout Quote) -> Void) {
         guard let index = snapshot.quotes.firstIndex(where: { $0.id == id }),
               snapshot.quotes[index].status == .draft else { return }
-        if scopeChanged { snapshot.quotes[index].invalidateApprovals() }
-        change(&snapshot.quotes[index])
+        QuoteRules.editDraft(&snapshot.quotes[index], impact: scopeChanged ? .scope : pricingChanged ? .pricing : .details, change)
         persist()
     }
 
@@ -90,7 +89,7 @@ final class TradeQuoteStore {
     @discardableResult func approvePricing(_ id: UUID) -> Bool {
         guard let quote = quote(id), quote.status == .draft else { return false }
         var q = quote
-        guard QuoteRules.approvePricing(&q, rates: rates, business: business) else { return false }
+        guard QuoteRules.approveScopeAndPricing(&q, rates: rates, business: business) else { return false }
         editQuote(id) { $0 = q }
         return true
     }
@@ -105,26 +104,38 @@ final class TradeQuoteStore {
     }
 
     func updateRate(_ rate: Rate) {
+        let previous = snapshot.rates.first { $0.id == rate.id }
         if let index = snapshot.rates.firstIndex(where: { $0.id == rate.id }) {
             snapshot.rates[index] = rate
         } else {
             snapshot.rates.append(rate)
         }
+        if previous != rate {
+            for i in snapshot.quotes.indices where snapshot.quotes[i].status == .draft && snapshot.quotes[i].lines.contains(where: { $0.rateID == rate.id }) {
+                snapshot.quotes[i].invalidatePricingApproval()
+            }
+        }
         persist()
     }
 
     func updateBusiness(_ profile: BusinessProfile) {
+        let pricingChanged = snapshot.business.vatPercent != profile.vatPercent || snapshot.business.currencyCode != profile.currencyCode || snapshot.business.terms != profile.terms
         snapshot.business = profile
+        if pricingChanged {
+            for i in snapshot.quotes.indices where snapshot.quotes[i].status == .draft { snapshot.quotes[i].invalidatePricingApproval() }
+        }
         persist()
     }
 
     func deleteRate(_ id: UUID) {
         snapshot.rates.removeAll { $0.id == id }
-        // Draft lines that pointed at this rate must be re-priced; approved prices stay frozen.
+        // Draft lines that pointed at this rate must be re-priced; final documents stay frozen.
         for index in snapshot.quotes.indices where snapshot.quotes[index].status == .draft {
+            let affected = snapshot.quotes[index].lines.contains { $0.rateID == id }
             for line in snapshot.quotes[index].lines.indices where snapshot.quotes[index].lines[line].rateID == id {
                 snapshot.quotes[index].lines[line].rateID = nil
             }
+            if affected { snapshot.quotes[index].invalidatePricingApproval() }
         }
         persist()
     }

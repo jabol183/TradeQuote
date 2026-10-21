@@ -13,11 +13,12 @@ final class QuoteRulesTests: XCTestCase {
         XCTAssertFalse(QuoteRules.approvePricing(&quote, rates: [], business: business))
     }
 
-    func testUnspecifiedAIItemCannotBeApproved() {
+    func testSpecificationGuidanceDoesNotRequireFillerText() {
         let line = QuoteLine(title: "Install light fitting", category: .labour, source: .photo,
                              quantity: 2, confirmationPrompt: "Which fitting?", isReviewed: true)
-        let quote = Quote(number: "QT-2", lines: [line])
-        XCTAssertTrue(QuoteRules.reviewProblems(quote).contains(.missingSpecification))
+        let quote = Quote(number: "QT-2", lines: [line], materialsConfirmed: true)
+        XCTAssertTrue(WorkflowRules.canConfirm(line))
+        XCTAssertTrue(QuoteRules.reviewProblems(quote).isEmpty)
     }
 
     func testDeterministicAmountsAndFrozenRates() {
@@ -88,3 +89,4 @@ final class QuoteRulesTests: XCTestCase {
         XCTAssertNil(QuoteRules.rate(for: line, in: [rate]))
     }
 }
+

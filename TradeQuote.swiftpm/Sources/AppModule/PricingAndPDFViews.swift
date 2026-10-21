@@ -9,6 +9,7 @@ struct PricingView: View {
     @State private var showingRates = false
     @State private var showingSettings = false
     @State private var error: String?
+    @State private var editing: QuoteLine?
 
     private var quote: Quote? { store.quote(quoteID) }
 
@@ -21,6 +22,17 @@ struct PricingView: View {
                 if let quote {
                     LabourBillingPanel(quoteID: quoteID)
                     CommercialTermsView(quoteID: quoteID)
+                    if quote.lines.contains(where: { !$0.isReviewed || !WorkflowRules.canConfirm($0) }) {
+                        Heading(text: "Confirm changed items here")
+                        ForEach(quote.lines.filter { !$0.isReviewed || !WorkflowRules.canConfirm($0) }) { line in
+                            ReviewItemCard(quoteID: quoteID, lineID: line.id, selected: .constant(false), showsSelection: false, edit: { editing = line })
+                        }
+                    }
+                    if !quote.materialsConfirmed {
+                        Toggle("I checked the materials for the changed work", isOn: Binding(
+                            get: { store.quote(quoteID)?.materialsConfirmed ?? false },
+                            set: { flag in store.editQuote(quoteID, scopeChanged: true) { $0.materialsConfirmed = flag } }))
+                    }
                     ForEach(LineCategory.allCases, id: \.self) { category in
                         let items = quote.lines.filter { $0.category == category }
                         if !items.isEmpty {
@@ -53,11 +65,11 @@ struct PricingView: View {
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 15))
                     }
 
-                    ValidationMessages(messages: QuoteRules.pricingProblems(quote, rates: store.rates, business: store.business).map(\.rawValue))
-                    ActionButton(title: quote.pricingApprovedAt == nil ? "Approve pricing" : "Continue to quote preview",
+                    ValidationMessages(messages: QuoteRules.pricingProblems(quote, rates: store.rates, business: store.business, requiresScopeApproval: false).map(\.rawValue))
+                    ActionButton(title: quote.reviewApprovedAt == nil ? "Approve changes & pricing" : quote.pricingApprovedAt == nil ? "Approve pricing" : "Continue to quote preview",
                                  icon: "checkmark.shield",
-                                 disabled: !QuoteRules.pricingProblems(quote, rates: store.rates, business: store.business).isEmpty) {
-                        if quote.pricingApprovedAt != nil {
+                                 disabled: !QuoteRules.pricingProblems(quote, rates: store.rates, business: store.business, requiresScopeApproval: false).isEmpty) {
+                        if quote.pricingApprovedAt != nil && quote.reviewApprovedAt != nil {
                             next()
                         } else if store.approvePricing(quoteID) {
                             next()
@@ -65,7 +77,7 @@ struct PricingView: View {
                             error = "Please confirm every line, rate and VAT setting."
                         }
                     }
-                    Text("Approval freezes the approved unit prices for this quote. Editing a line or selecting a new rate requires reapproval.")
+                    Text("Pricing approval freezes the unit prices for this quote. Price changes keep your scope confirmations; changed work can be confirmed here.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -76,6 +88,10 @@ struct PricingView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingRates) { NavigationStack { RateCardView(showsDone: true) } }
         .sheet(isPresented: $showingSettings) { NavigationStack { SettingsView(showsDone: true) } }
+        .sheet(item: $editing) { line in
+            LineEditor(line: line, quoteID: quoteID, canDelete: false,
+                onSave: { store.saveLine($0, in: quoteID); editing = nil }, onDelete: {})
+        }
         .alert("Check pricing", isPresented: Binding(
             get: { error != nil },
             set: { if !$0 { error = nil } }
@@ -91,6 +107,7 @@ struct PricingView: View {
             HStack {
                 Text(line.title).font(.subheadline.bold())
                 Spacer()
+                Button("Edit") { editing = line }.font(.caption)
                 Text("\(line.quantity?.editable ?? "?") \(line.unit)").font(.caption).foregroundStyle(.secondary)
             }
             if let quote, !WorkflowRules.isChargeable(line, in: quote) {
@@ -99,12 +116,10 @@ struct PricingView: View {
             Picker("Your rate", selection: Binding(
                 get: { store.quote(quoteID)?.lines.first(where: { $0.id == line.id })?.rateID },
                 set: { value in
-                    store.editQuote(quoteID) { q in
+                    store.editQuote(quoteID, pricingChanged: true) { q in
                         guard let index = q.lines.firstIndex(where: { $0.id == line.id }) else { return }
                         q.lines[index].rateID = value
-                        q.lines[index].approvedUnitPrice = nil
-                        q.pricingApprovedAt = nil
-                        q.approvedVATPercent = nil
+                        if let value, options.contains(where: { $0.id == value }) { q.lines[index].needsRateMatch = false }
                     }
                 }
             )) {

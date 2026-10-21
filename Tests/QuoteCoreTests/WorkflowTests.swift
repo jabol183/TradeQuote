@@ -44,11 +44,12 @@ final class WorkflowTests: XCTestCase {
         q.reviewApprovedAt = Date()
         XCTAssertTrue(QuoteRules.pricingProblems(q, rates: [], business: BusinessProfile()).contains(.billingOverlap))
     }
-    func testRecipeSupplyAndSpecificationNeedAnswers() {
+    func testRecipeSupplyNeedsSelectionAndSpecificationsAreOptional() {
         let recipe = JobRecipe.starters[0]
         var line = recipe.scopeLine(quantity: 6)
         XCTAssertFalse(WorkflowRules.canConfirm(line))
-        line.specification = "Double white sockets"; line.supply = .contractor
+        line.supply = .contractor
+        XCTAssertTrue(line.specification.isEmpty)
         XCTAssertTrue(WorkflowRules.canConfirm(line))
         line.confirmationKind = .quantity; line.specification = ""; line.confirmationPrompt = "How many?"
         XCTAssertTrue(WorkflowRules.canConfirm(line))

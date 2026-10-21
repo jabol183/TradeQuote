@@ -86,11 +86,15 @@ public struct QuoteLine: Codable, Identifiable, Equatable, Sendable {
     public var approvedUnitPrice: Decimal?
     public var recipeID: UUID? = nil
     public var room: String? = nil
+    public var sourceStart: Int? = nil
+    public var sourceLength: Int? = nil
     public var isApproximate: Bool? = nil
     public var disposition: ScopeDisposition? = nil
     public var optionalSelected: Bool? = nil
     public var supply: MaterialSupply? = nil
     public var confirmationKind: ConfirmationKind? = nil
+    public var workActionRequired: Bool? = nil
+    public var capturedWorkObject: String? = nil
     public var linkedPhotos: [String]? = nil
     public var needsRateMatch: Bool? = nil
     public var isRecipeContainer: Bool? = nil
@@ -172,10 +176,8 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         self.responseRecordedAt = responseRecordedAt
     }
 
-    /// Any scope or price selection edit invalidates previously recorded approvals.
-    public mutating func invalidateApprovals() {
-        reviewApprovedAt = nil
-        materialsConfirmed = false
+    /// Price changes leave the contractor's scope and materials checks intact.
+    public mutating func invalidatePricingApproval() {
         pricingApprovedAt = nil
         approvedVATPercent = nil
         approvedCurrencyCode = nil
@@ -187,6 +189,11 @@ public struct Quote: Codable, Identifiable, Equatable, Sendable {
         status = .draft
         sentAt = nil
         responseRecordedAt = nil
+    }
+    public mutating func invalidateApprovals() {
+        reviewApprovedAt = nil
+        materialsConfirmed = false
+        invalidatePricingApproval()
     }
 }
 
@@ -203,7 +210,6 @@ public enum QuoteProblem: String, Equatable, Sendable {
     case noLines = "Add at least one item."
     case unconfirmedItem = "Confirm every item and quantity."
     case materialsNotReviewed = "Check the materials needed (including none) before approving."
-    case missingSpecification = "Complete the missing specifications flagged by AI."
     case missingRate = "Select a saved rate with a price for every line."
     case reviewNotApproved = "Approve the reviewed scope first."
     case pricingNotApproved = "Approve the pricing first."

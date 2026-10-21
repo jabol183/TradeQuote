@@ -37,6 +37,9 @@ struct DraftProposalView: View {
                                     Text("\(change.line.isApproximate == true ? "Approximately " : "")\(change.line.quantity?.editable ?? "Quantity missing") \(change.line.unit)")
                                         .font(.headline).foregroundStyle(.orange)
                                     if let room = change.line.room { Text(room).font(.caption) }
+                                    if change.line.workActionRequired == true {
+                                        Text("Choose install, replace or other work in Review.").font(.subheadline).foregroundStyle(.orange)
+                                    }
                                 }
                                 Text(change.line.sourceDetail).font(.caption).foregroundStyle(.secondary)
                             }
