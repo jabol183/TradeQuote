@@ -20,6 +20,7 @@ struct SettingsView: View {
     var showsDone = false
     @State private var selected: SettingsPanel?
     @State private var showRates = false
+    @State private var showRecipes = false
 
     var body: some View {
         List {
@@ -39,6 +40,7 @@ struct SettingsView: View {
             Section {
                 row("Business Details", icon: "building.2", panel: .business)
                 row("Rate Card", icon: "tag", panel: nil)
+                Button { showRecipes = true } label: { Label("Job Recipes", systemImage: "square.stack.3d.up") }
                 row("Quote Templates", icon: "doc.text", panel: .terms)
                 row("VAT Settings", icon: "percent", panel: .vat)
                 row("Units & Defaults", icon: "ruler", panel: .units)
@@ -49,7 +51,7 @@ struct SettingsView: View {
                 row("Data & Privacy", icon: "lock.shield", panel: .privacy)
             }
             Section {
-                Text("TradeQuote AI · Version 1.0\nQuotes and job photos are stored locally on this device.")
+                Text("TradeQuote AI · Version 1.1\nQuotes and job photos are stored locally on this device.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -59,6 +61,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
         }
+        .sheet(isPresented: $showRecipes) { NavigationStack { RecipeLibraryView() } }
         .sheet(item: $selected) { panel in
             NavigationStack { SettingsPanelView(panel: panel) }
         }
@@ -131,13 +134,14 @@ private struct SettingsPanelView: View {
             case .voice:
                 Section {
                     Label("Dictation is transcribed through Apple's on-device Speech Recognition engine.", systemImage: "waveform")
-                    Text("An English (UK) on-device speech model must be installed. If it is unavailable, you can type the job description.")
+                    Text("Select an installed on-device speech language on the Capture screen. Failed recordings can be retried until you leave that screen.")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Text("Say “Start a quote in TradeQuote” or use the New Trade Quote app shortcut to open the capture flow. Siri never creates a final quote or sets prices.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             case .ai:
                 Section {
+                    NavigationLink("Run sample extraction checks") { EvaluationView() }
                     switch SystemLanguageModel.default.availability {
                     case .available:
                         Label("Apple Foundation Models is available on this device.", systemImage: "checkmark.circle.fill")
@@ -151,6 +155,7 @@ private struct SettingsPanelView: View {
                         .font(.subheadline)
                 }
             case .privacy:
+                BackupView()
                 Section {
                     Label("All quote data is saved in the app's local Documents folder.", systemImage: "internaldrive")
                     Label("Photographs are resized and stored locally.", systemImage: "photo")
@@ -196,3 +201,4 @@ private extension SettingsPanel {
         }
     }
 }
+

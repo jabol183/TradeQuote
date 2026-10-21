@@ -1,5 +1,6 @@
 import SwiftUI
 import QuoteCore
+import UniformTypeIdentifiers
 
 struct CustomersView: View {
     @Environment(TradeQuoteStore.self) private var store
@@ -136,6 +137,16 @@ struct RateCardView: View {
     var showsDone = false
     @State private var category: LineCategory = .labour
     @State private var editing: Rate?
+    @State private var search = ""
+    @State private var importCSV = false
+    @State private var imported: [Rate] = []
+    @State private var showImportPreview = false
+    @State private var importError: String?
+    private var filteredRates: [Rate] {
+        store.rates.filter { rate in
+            rate.category == category && (search.isEmpty || ([rate.name, rate.productCode ?? ""] + (rate.aliases ?? [])).contains(where: { $0.localizedCaseInsensitiveContains(search) }))
+        }.sorted { $0.isFavourite == true && $1.isFavourite != true ? true : ($0.isFavourite != true && $1.isFavourite == true ? false : $0.name < $1.name) }
+    }
 
     var body: some View {
         List {
@@ -146,11 +157,12 @@ struct RateCardView: View {
                 .pickerStyle(.segmented)
             }
             Section("\(category.rawValue) rates") {
-                ForEach(store.rates.filter { $0.category == category }) { rate in
+                ForEach(filteredRates) { rate in
                     Button { editing = rate } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(rate.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                Text((rate.isFavourite == true ? "★ " : "") + rate.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                if let date = rate.updatedAt { Text("Checked \(date.quoteDate)").font(.caption2).foregroundStyle(.secondary) }
                                 Text("Per \(rate.unit)").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -166,10 +178,34 @@ struct RateCardView: View {
                 }
             }
             Section {
+                Button("Import price list (CSV)") { importCSV = true }
+                Text("Columns: name,category,unit,amount. Optional: aliases (separated by |), productcode,purchasecost. Preview before importing; matching names, categories and units update existing rates.").font(.caption)
+                if let importError { Text(importError).foregroundStyle(.red) }
                 Label("Only rates you enter here can be used to approve a quote. No sample amounts are preloaded.",
                       systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .searchable(text: $search)
+        .fileImporter(isPresented: $importCSV, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
+            do {
+                let url = try result.get(); let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) < 5_000_000 else { throw RateCSV.Failure.invalid("Import a CSV smaller than 5 MB.") }
+                imported = try RateCSV.parse(String(contentsOf: url, encoding: .utf8)); showImportPreview = true; importError = nil
+            } catch { importError = error.localizedDescription }
+        }
+        .sheet(isPresented: $showImportPreview) {
+            NavigationStack {
+                List(imported) { rate in
+                    VStack(alignment: .leading) { Text(rate.name); Text("\(rate.category.rawValue) / \(rate.unit) · \(rate.amount?.editable ?? "Rate not set")").font(.caption) }
+                }
+                .navigationTitle("Import \(imported.count) rates")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showImportPreview = false } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Import") { store.importRates(imported); showImportPreview = false }.disabled(imported.isEmpty) }
+                }
             }
         }
         .navigationTitle("Rate Card")
@@ -195,6 +231,9 @@ struct RateEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var rate: Rate
     @State private var priceString: String
+    @State private var aliases = ""
+    @State private var cost = ""
+    @State private var markup = ""
     let currency: String
     let onSave: (Rate) -> Void
 
@@ -224,26 +263,46 @@ struct RateEditor: View {
                             .multilineTextAlignment(.trailing)
                     }
                 }
+                Section("Catalogue details") {
+                    TextField("Product / service code", text: Binding(get: { rate.productCode ?? "" }, set: { rate.productCode = $0 }))
+                    TextField("Alternative names, separated by commas", text: $aliases, axis: .vertical)
+                    Toggle("Favourite", isOn: Binding(get: { rate.isFavourite ?? false }, set: { rate.isFavourite = $0 }))
+                    TextField("Purchase cost", text: $cost).keyboardType(.decimalPad)
+                    TextField("Markup percentage", text: $markup).keyboardType(.decimalPad)
+                    Button("Calculate selling price from cost + markup") {
+                        if let base = cost.asDecimal, let percent = markup.asDecimal { priceString = QuoteRules.roundMoney(base * (1 + percent / 100)).editable }
+                    }.disabled(cost.asDecimal == nil || markup.asDecimal == nil || (markup.asDecimal ?? -1) < 0)
+                    if let price = priceString.asDecimal, let base = cost.asDecimal, price > 0 {
+                        Text("Gross margin: \(QuoteRules.roundMoney((price - base) / price * 100).editable)%").font(.caption)
+                    }
+                    Text("Markup is a percentage added to cost. Gross margin is profit divided by selling price.").font(.caption)
+                }
                 Section {
                     Text("Leave the price blank to keep Rate not set. All costs are entered by the contractor.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .keyboardDoneButton()
+            .onAppear { aliases = (rate.aliases ?? []).joined(separator: ", "); cost = rate.purchaseCost?.editable ?? "" }
             .navigationTitle("Edit Rate")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         rate.amount = priceString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : priceString.asDecimal
+                        rate.aliases = aliases.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                        rate.purchaseCost = cost.asDecimal
+                        rate.updatedAt = Date()
                         onSave(rate)
                         dismiss()
                     }
                     .disabled(rate.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                               rate.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                              (!priceString.isEmpty && (priceString.asDecimal == nil || (priceString.asDecimal ?? -1) < 0)))
+                              (!priceString.isEmpty && (priceString.asDecimal == nil || (priceString.asDecimal ?? -1) < 0)) ||
+                              (!cost.isEmpty && (cost.asDecimal == nil || (cost.asDecimal ?? -1) < 0)))
                 }
             }
         }
     }
 }
+

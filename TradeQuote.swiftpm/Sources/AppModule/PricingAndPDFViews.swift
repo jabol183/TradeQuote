@@ -19,6 +19,8 @@ struct PricingView: View {
                 Text("Choose labour and material rates from your own rate card. The AI never sets prices.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if let quote {
+                    LabourBillingPanel(quoteID: quoteID)
+                    CommercialTermsView(quoteID: quoteID)
                     ForEach(LineCategory.allCases, id: \.self) { category in
                         let items = quote.lines.filter { $0.category == category }
                         if !items.isEmpty {
@@ -83,7 +85,7 @@ struct PricingView: View {
     }
 
     private func priceRow(_ line: QuoteLine) -> some View {
-        let options = store.rates.filter { $0.category == line.category && QuoteRules.unitsMatch($0.unit, line.unit) }
+        let options = WorkflowRules.suggestedRates(for: line, rates: store.rates)
         let rate = store.rates.first { $0.id == line.rateID }
         return VStack(alignment: .leading, spacing: 9) {
             HStack {
@@ -91,6 +93,9 @@ struct PricingView: View {
                 Spacer()
                 Text("\(line.quantity?.editable ?? "?") \(line.unit)").font(.caption).foregroundStyle(.secondary)
             }
+            if let quote, !WorkflowRules.isChargeable(line, in: quote) {
+                Label(chargeExplanation(line, quote: quote), systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+            } else {
             Picker("Your rate", selection: Binding(
                 get: { store.quote(quoteID)?.lines.first(where: { $0.id == line.id })?.rateID },
                 set: { value in
@@ -127,9 +132,18 @@ struct PricingView: View {
                 Label("Rate not set", systemImage: "exclamationmark.circle")
                     .font(.caption).foregroundStyle(.orange)
             }
+            }
         }
         .padding(13)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func chargeExplanation(_ line: QuoteLine, quote: Quote) -> String {
+        if !WorkflowRules.included(line) { return "Not included in the total" }
+        if line.isRecipeContainer == true { return "Scope heading; configured components are priced separately" }
+        if line.category == .materials { return "Materials supplied by customer / no purchase charge" }
+        if quote.billingMethod == .perTask { return "Internal time allowance; task rates cover labour" }
+        return quote.billingMethod == .fixed ? "Included in fixed labour total" : "Covered by whole-job labour hours"
     }
 
     private func sumRow(_ title: String, _ value: String, strong: Bool = false) -> some View {
@@ -284,6 +298,8 @@ struct QuoteDetailsView: View {
     let quoteID: UUID
     let preview: () -> Void
     @State private var duplicateMessage = false
+    @State private var materialsURL: URL?
+    @State private var exportError: String?
 
     var body: some View {
         ScrollView {
@@ -328,6 +344,14 @@ struct QuoteDetailsView: View {
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
                     }
 
+                    if let original = quote.revisionOf { Text("Revision of \(original)").font(.subheadline) }
+                    if let expiry = quote.expiresAt { Text("Valid until \(expiry.quoteDate)").font(.subheadline) }
+                    Button("Prepare materials list") {
+                        do { materialsURL = try store.materialsList(quoteID) }
+                        catch { exportError = error.localizedDescription }
+                    }
+                    if let materialsURL { ShareLink("Share materials list", item: materialsURL) }
+                    if let exportError { Text(exportError).font(.caption).foregroundStyle(.red) }
                     Heading(text: "Timeline")
                     VStack(alignment: .leading, spacing: 12) {
                         timeline("Created", quote.createdAt)
@@ -357,7 +381,7 @@ struct QuoteDetailsView: View {
                     }
                     Button {
                         duplicateMessage = store.duplicate(quoteID) != nil
-                    } label: { Label("Duplicate as a new draft", systemImage: "doc.on.doc") }
+                    } label: { Label("Create revised quotation", systemImage: "doc.on.doc") }
                     .padding(.vertical, 12)
                 }
             }
@@ -379,3 +403,4 @@ struct QuoteDetailsView: View {
         }
     }
 }
+

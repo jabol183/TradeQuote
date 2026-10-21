@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import UIKit
 import QuoteCore
+import UserNotifications
 
 @MainActor @Observable
 final class TradeQuoteStore {
@@ -13,6 +14,7 @@ final class TradeQuoteStore {
     var rates: [Rate] { snapshot.rates }
     var customers: [Customer] { snapshot.customers }
     var business: BusinessProfile { snapshot.business }
+    var recipes: [JobRecipe] { snapshot.recipes ?? JobRecipe.starters }
 
     private static var docs: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -49,6 +51,7 @@ final class TradeQuoteStore {
             ]
             snapshot = fresh
         }
+        if snapshot.recipes == nil { snapshot.recipes = JobRecipe.starters }
         failureMessage = startupProblem
     }
 
@@ -62,7 +65,9 @@ final class TradeQuoteStore {
             guard quote.number.hasPrefix(prefix) else { return nil }
             return Int(quote.number.dropFirst(prefix.count))
         }.max() ?? 0
-        let new = Quote(number: prefix + String(format: "%04d", highest + 1))
+        var new = Quote(number: prefix + String(format: "%04d", highest + 1))
+        new.workflowVersion = 2
+        new.expiresAt = Calendar.current.date(byAdding: .day, value: 30, to: .now)
         snapshot.quotes.insert(new, at: 0)
         persist()
         return new.id
@@ -137,6 +142,7 @@ final class TradeQuoteStore {
     func deleteQuote(_ id: UUID) {
         guard let quote = quote(id) else { return }
         snapshot.quotes.removeAll { $0.id == id }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id.uuidString])
         for name in quote.photoNames { deletePhotoFileIfUnused(name) }
         try? FileManager.default.removeItem(at: Self.pdfFolder.appendingPathComponent("\(id.uuidString).pdf"))
         persist()
@@ -148,7 +154,10 @@ final class TradeQuoteStore {
         // Never pretend delivery or customer acceptance happened automatically.
         snapshot.quotes[index].status = status
         if status == .sent { snapshot.quotes[index].sentAt = .now }
-        if status == .accepted || status == .declined { snapshot.quotes[index].responseRecordedAt = .now }
+        if status == .accepted || status == .declined {
+            snapshot.quotes[index].responseRecordedAt = .now
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id.uuidString])
+        }
         persist()
     }
 
@@ -161,9 +170,27 @@ final class TradeQuoteStore {
         original.number = number
         original.createdAt = Date()
         original.invalidateApprovals()
+        original.revisionOf = quote(id)?.number
+        original.versions = []
+        original.approvedBusiness = nil
+        original.approvedCustomer = nil
+        original.approvedTerms = nil
+        original.expiresAt = Calendar.current.date(byAdding: .day, value: 30, to: .now)
+        original.followUpAt = nil
+        let lineIDs = Dictionary(uniqueKeysWithValues: original.lines.map { ($0.id, UUID()) })
+        original.photoContexts = original.photoContexts?.map { context in
+            var context = context
+            context.lineID = context.lineID.flatMap { lineIDs[$0] }
+            return context
+        }
+        original.observations = original.observations?.map { observation in
+            var observation = observation
+            observation.promotedLineID = observation.promotedLineID.flatMap { lineIDs[$0] }
+            return observation
+        }
         original.lines = original.lines.map { line in
             var line = line
-            line.id = UUID()
+            line.id = lineIDs[line.id] ?? UUID()
             line.isReviewed = false
             return line
         }
@@ -200,7 +227,12 @@ final class TradeQuoteStore {
 
     func removePhoto(_ filename: String, from id: UUID) {
         guard quote(id)?.photoNames.contains(filename) == true else { return }
-        editQuote(id, scopeChanged: true) { $0.photoNames.removeAll { $0 == filename } }
+        editQuote(id, scopeChanged: true) { quote in
+            quote.photoNames.removeAll { $0 == filename }
+            quote.photoContexts?.removeAll { $0.filename == filename }
+            quote.observations?.removeAll { $0.filename == filename }
+            for index in quote.lines.indices { quote.lines[index].linkedPhotos?.removeAll { $0 == filename } }
+        }
         deletePhotoFileIfUnused(filename)
     }
 
@@ -220,6 +252,8 @@ final class TradeQuoteStore {
         guard problems.isEmpty, let customer = customer(quote.customerID) else {
             throw StorageError.notApproved(problems.map(\.rawValue).joined(separator: " "))
         }
+        quote.approvedBusiness = business
+        quote.approvedCustomer = customer
         let bytes = try QuotePDF.generate(quote: quote, business: business, customer: customer, rates: rates)
         let folder = Self.pdfFolder
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -279,6 +313,168 @@ final class TradeQuoteStore {
         }
     }
 
+    func updateRecipe(_ recipe: JobRecipe) {
+        var all = recipes
+        if let index = all.firstIndex(where: { $0.id == recipe.id }) { all[index] = recipe }
+        else { all.append(recipe) }
+        snapshot.recipes = all
+        persist()
+    }
+
+    func saveLine(_ line: QuoteLine, in id: UUID) {
+        checkpoint(id, reason: "Before editing \(line.title)")
+        editQuote(id, scopeChanged: true) { quote in
+            if let index = quote.lines.firstIndex(where: { $0.id == line.id }) { quote.lines[index] = line }
+            else { quote.lines.append(line) }
+        }
+    }
+
+    func checkpoint(_ id: UUID, reason: String) {
+        editQuote(id) { quote in
+            var versions = quote.versions ?? []
+            versions.append(QuoteVersion(reason: reason, lines: quote.lines, observations: quote.observations ?? []))
+            quote.versions = Array(versions.suffix(25))
+        }
+    }
+
+    func restoreVersion(_ version: QuoteVersion, in id: UUID) {
+        checkpoint(id, reason: "Before restoring version")
+        editQuote(id, scopeChanged: true) { quote in
+            let validPhotos = Set(quote.photoNames)
+            quote.lines = version.lines.map { item in
+                var line = item
+                line.isReviewed = false
+                line.approvedUnitPrice = nil
+                line.linkedPhotos = line.linkedPhotos?.filter { validPhotos.contains($0) }
+                return line
+            }
+            quote.observations = version.observations.filter { validPhotos.contains($0.filename) }
+        }
+    }
+
+    func apply(_ changes: [DraftChange], observations: [PhotoObservation], to id: UUID) {
+        guard !changes.isEmpty || !observations.isEmpty else { return }
+        checkpoint(id, reason: "Before applying AI suggestions")
+        editQuote(id, scopeChanged: true) { quote in
+            for change in changes where change.operation != .conflict {
+                switch change.operation {
+                case .remove:
+                    quote.lines.removeAll { $0.id == change.existingID }
+                    quote.observations = quote.observations?.map { observation in
+                        var observation = observation
+                        if observation.promotedLineID == change.existingID { observation.promotedLineID = nil }
+                        return observation
+                    }
+                case .update:
+                    if let index = quote.lines.firstIndex(where: { $0.id == change.existingID }) {
+                        var line = change.line
+                        line.isReviewed = false; line.approvedUnitPrice = nil
+                        quote.lines[index] = line
+                    }
+                case .add:
+                    var line = change.line
+                    line.isReviewed = false; line.approvedUnitPrice = nil
+                    quote.lines.append(line)
+                case .conflict: break
+                }
+            }
+            var all = quote.observations ?? []
+            for item in observations where !all.contains(where: { $0.filename == item.filename && $0.text == item.text }) { all.append(item) }
+            quote.observations = all
+        }
+    }
+
+    func expandRecipe(for lineID: UUID, in id: UUID) {
+        guard let quote = quote(id), let parent = quote.lines.first(where: { $0.id == lineID }),
+              let recipe = recipes.first(where: { $0.id == parent.recipeID }), let quantity = parent.quantity else { return }
+        checkpoint(id, reason: "Before adding configured recipe components")
+        editQuote(id, scopeChanged: true) { quote in
+            for component in recipe.components {
+                if component.category == .materials && parent.supply != .contractor { continue }
+                let witness = "Recipe \(recipe.name), configured by contractor; parent \(parent.id.uuidString)"
+                guard !quote.lines.contains(where: { $0.sourceDetail == witness && $0.title == component.title }) else { continue }
+                var line = QuoteLine(title: component.title, category: component.category, source: .manual,
+                    sourceDetail: witness, quantity: component.quantityPerJob * quantity, unit: component.unit)
+                line.rateID = component.rateID; line.supply = parent.supply; line.room = parent.room
+                quote.lines.append(line)
+            }
+            // The recipe parent becomes descriptive scope; component labour is priced separately.
+            if let index = quote.lines.firstIndex(where: { $0.id == parent.id }) { quote.lines[index].isRecipeContainer = true }
+        }
+    }
+
+    func importRates(_ imported: [Rate]) {
+        for rate in imported {
+            var rate = rate
+            if let old = snapshot.rates.first(where: {
+                WorkflowRules.normalized($0.name) == WorkflowRules.normalized(rate.name) &&
+                $0.category == rate.category && QuoteRules.unitsMatch($0.unit, rate.unit)
+            }) { rate.id = old.id }
+            updateRate(rate)
+        }
+    }
+
+    func materialsList(_ id: UUID) throws -> URL {
+        guard let quote = quote(id) else { throw StorageError.missingQuote }
+        let rows = quote.lines.filter { $0.category == .materials && WorkflowRules.included($0) }.map {
+            "\($0.quantity?.editable ?? "?") \($0.unit) — \($0.title) — \($0.specification) — supplied by \($0.supply?.rawValue ?? "Confirm")"
+        }
+        let data = "\(quote.number) — Materials\n" + (rows.isEmpty ? "No material lines recorded. Check the reviewed scope before purchasing." : rows.joined(separator: "\n"))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(quote.number)-materials.txt")
+        try data.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    func exportBackup() throws -> URL {
+        saveNow()
+        var photos: [String: Data] = [:], pdfs: [String: Data] = [:]
+        for quote in snapshot.quotes {
+            for name in quote.photoNames { photos[name] = try Data(contentsOf: photoURL(named: name)) }
+            if quote.finalizedAt != nil {
+                let name = quote.id.uuidString + ".pdf"
+                pdfs[name] = try Data(contentsOf: Self.pdfFolder.appendingPathComponent(name))
+            }
+        }
+        let archive = BackupArchive(snapshot: snapshot, photos: photos, pdfs: pdfs)
+        try archive.validate()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("TradeQuote-backup-\(Int(Date().timeIntervalSince1970)).json")
+        try JSONEncoder().encode(archive).write(to: url, options: .atomic)
+        return url
+    }
+
+    func restoreBackup(_ archive: BackupArchive) throws {
+        try archive.validate()
+        let fm = FileManager.default
+        let staged = Self.docs.appendingPathComponent("Restore-\(UUID().uuidString)", isDirectory: true)
+        let recovery = Self.docs.appendingPathComponent("Recovery-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: staged.appendingPathComponent("Photos"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: staged.appendingPathComponent("PDFs"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staged) }
+        for (name, data) in archive.photos { try data.write(to: staged.appendingPathComponent("Photos").appendingPathComponent(name), options: .atomic) }
+        for (name, data) in archive.pdfs { try data.write(to: staged.appendingPathComponent("PDFs").appendingPathComponent(name), options: .atomic) }
+        var restored = archive.snapshot
+        if restored.recipes == nil { restored.recipes = JobRecipe.starters }
+        try JSONEncoder().encode(restored).write(to: staged.appendingPathComponent("tradequote.json"), options: .atomic)
+        pendingSave?.cancel(); pendingSave = nil
+        try fm.createDirectory(at: recovery, withIntermediateDirectories: true)
+        var moved: [String] = [], installed: [String] = []
+        do {
+            for name in ["Photos", "PDFs", "tradequote.json"] {
+                let current = Self.docs.appendingPathComponent(name)
+                if fm.fileExists(atPath: current.path) { try fm.moveItem(at: current, to: recovery.appendingPathComponent(name)); moved.append(name) }
+                try fm.moveItem(at: staged.appendingPathComponent(name), to: current); installed.append(name)
+            }
+        } catch {
+            for name in installed { try? fm.removeItem(at: Self.docs.appendingPathComponent(name)) }
+            for name in moved { try? fm.moveItem(at: recovery.appendingPathComponent(name), to: Self.docs.appendingPathComponent(name)) }
+            throw error
+        }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: snapshot.quotes.map { $0.id.uuidString })
+        snapshot = restored
+        failureMessage = nil
+        try? fm.removeItem(at: recovery)
+    }
+
     enum StorageError: LocalizedError {
         case missingQuote, imageEncodeFailed, notApproved(String)
         var errorDescription: String? {
@@ -290,3 +486,4 @@ final class TradeQuoteStore {
         }
     }
 }
+

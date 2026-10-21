@@ -83,3 +83,8 @@ base64 -i dist.p12 | tr -d '\n'                      # → BUILD_CERTIFICATE_BAS
 base64 -i TradeQuote_AppStore.mobileprovision | tr -d '\n'   # → BUILD_PROVISION_PROFILE_BASE64
 ```
 Create the profile at developer.apple.com → **Profiles** → **+** → *App Store Connect* → choose your App ID and the certificate.
+
+
+## Reliable quoting branch
+
+The existing TestFlight workflow also accepts pushes to `feature/reliable-quoting`. It runs all quote-logic tests before archiving/signing and uploading version 1.1.0 with a unique timestamp build number. Manual workflow dispatch and `v*` tags remain supported. A successful upload means Apple has received the build; processing and any tester-group review are separate App Store Connect stages.

@@ -55,3 +55,23 @@ Camera, photo library, microphone, and Speech Recognition permission strings are
 - `Attachment` is an image-prompting symbol introduced with the **iOS/iPadOS 27 Foundation Models SDK**. Swift Playgrounds built with the older SDK does not recognize the symbol even inside an `#available` check.
 - The image-attachment code is compiled only by Swift 6.4+ toolchains and is further guarded at runtime for iOS/iPadOS 27+. **Older toolchains keep photo capture, manually reviewing photos, speech-to-text, Foundation Models text extraction, pricing and PDF generation.** They display an informative message instead of analyzing image pixels.
 - `CaptureTile` uses an explicit `nonisolated` data-only initializer for the PhotosPicker label closure to resolve the Swift 6 actor isolation warning.
+
+
+## Reliable quoting workflow (1.1)
+
+- Sixteen editable electrician job recipes, aliases, specification questions, material-supply answers, and contractor-configured labour/material components. No assumed prices or labour times.
+- Apple Foundation Models remains the only LLM. Separate bounded extraction and per-item catalogue/detail matching use guided generation and greedy sampling. Suggestions need literal supporting excerpts; numbers without a numeric/spelled-out witness are left unset.
+- Proposed additions, corrections and removals are previewed before application. Duplicate conflicts require explicit resolution. Exact reanalysis is idempotent; changes retain checkpoints with undo and fresh approval.
+- Hourly, per-task and fixed labour methods keep descriptive scope separate from charged lines. Optional/excluded work and customer-supplied materials do not add to totals unless explicitly included/charged. Configured recipe components replace parent pricing rather than charging twice.
+- Photo purpose, contractor annotation, linked work and a centre-detail crop guide image observations. Observations never become billable lines without contractor entry and confirmation.
+- On-device dictation language selection, trade vocabulary, retained failed recordings for retry while Capture is open, and voice/note provenance. Speech and Foundation Models language support depend on the installed Apple models.
+- Searchable rate catalogue, favourites, product codes, cost/markup calculation, and CSV preview/import. Header: `name,category,unit,amount`; optional `aliases,productcode,purchasecost`. Aliases use `|`. Imports update matching name/category/unit records; approved historic prices stay frozen.
+- Quote validity, deposits, payment schedule, revisions, device follow-up reminders, and materials-list export. Sharing and acceptance remain explicit user actions.
+- Settings → Data & Privacy exports/restores a complete JSON backup including photos and PDFs. Restore validates paths and references, stages replacement, and requires explicit confirmation. The backup is not encrypted; use a protected destination in Files.
+- Settings → On-Device AI → Run sample extraction checks runs ten fixed scenarios without changing customer records. This is an on-device diagnostic, not an accuracy guarantee.
+
+### Verification
+
+`swift test` covers legacy snapshot compatibility, labour billing modes, optional/excluded work, recipe supply questions, deterministic reconciliation, number grounding, CSV validation and backup validation. The existing iOS workflow compiles the actual app with the iOS SDK. Hardware verification is still required for Apple model quality, permissions, camera, notification delivery and speech languages.
+
+Device acceptance checks: dictate the six-socket/two-fitting/four-hour example; choose hourly and verify no task labour double charge; correct six to eight and inspect the change preview; add the same input again and check for duplicates; link/crop a photo; expand a configured recipe; export and restore a backup; generate a PDF with optional/excluded work, deposit and fixed labour; create a revision and check the original final PDF remains unchanged.

@@ -16,6 +16,12 @@ struct CaptureView: View {
     @State private var processingMessage = ""
     @State private var error: String?
     @State private var showError = false
+    @State private var proposal: DraftProposal?
+    @State private var photoEditing: PhotoContext?
+    @State private var transcribing = false
+    @AppStorage("TradeQuote.SpeechLocale") private var speechLocale = "en_GB"
+    private var vocabulary: [String] { store.recipes.map(\.name) + store.rates.map(\.name) }
+
 
     var body: some View {
         ScrollView {
@@ -39,7 +45,10 @@ struct CaptureView: View {
                     ScrollView(.horizontal) {
                         HStack(spacing: 10) {
                             ForEach(quote.photoNames, id: \.self) { filename in
-                                PhotoThumb(filename: filename)
+                                Button {
+                                    photoEditing = store.quote(quoteID)?.photoContexts?.first(where: { $0.filename == filename }) ?? PhotoContext(filename: filename)
+                                } label: { PhotoThumb(filename: filename) }
+                                    .buttonStyle(.plain)
                                     .contextMenu {
                                         Button("Remove photo", role: .destructive) {
                                             store.removePhoto(filename, from: quoteID)
@@ -68,7 +77,10 @@ struct CaptureView: View {
                                 Task {
                                     if voice.isRecording {
                                         do {
-                                            let result = try await voice.stopAndTranscribe()
+                                            transcribing = true
+                                            defer { transcribing = false }
+                                            let result = try await voice.stopAndTranscribe(locale: speechLocale, vocabulary: vocabulary)
+                                            store.editQuote(quoteID) { $0.voiceTranscripts = ($0.voiceTranscripts ?? []) + [result] }
                                             // onChange(of: noteText) saves this to the quote.
                                             noteText = [noteText, result].filter { !$0.isEmpty }.joined(separator: "\n")
                                         } catch { report(error) }
@@ -89,6 +101,29 @@ struct CaptureView: View {
                     }
                     .frame(height: 205)
 
+                    Picker("Dictation language", selection: $speechLocale) {
+                        Text("English (UK)").tag("en_GB")
+                        Text("English (US)").tag("en_US")
+                        Text("Polski").tag("pl_PL")
+                        Text("Deutsch").tag("de_DE")
+                    }
+                    Text("Requires an installed on-device speech model. Check highlighted quantities in the draft.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if transcribing { ProgressView("Transcribing on device…") }
+                    if voice.hasRetryRecording && !transcribing {
+                        Button("Retry retained recording") {
+                            Task {
+                                transcribing = true
+                                defer { transcribing = false }
+                                do {
+                                    let result = try await voice.retryTranscription(locale: speechLocale, vocabulary: vocabulary)
+                                    store.editQuote(quoteID) { $0.voiceTranscripts = ($0.voiceTranscripts ?? []) + [result] }
+                                    noteText = [noteText, result].filter { !$0.isEmpty }.joined(separator: "\n")
+                                } catch { report(error) }
+                            }
+                        }
+                        Button("Discard recording", role: .destructive) { voice.cancel() }
+                    }
                     Text("Job notes / transcript").font(.subheadline.weight(.semibold))
                     TextEditor(text: $noteText)
                         .frame(minHeight: 120)
@@ -109,7 +144,7 @@ struct CaptureView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                 }
-                ActionButton(title: "Organise draft with on-device AI", icon: "sparkles", disabled: processing || voice.isRecording, action: {
+                ActionButton(title: "Organise draft with on-device AI", icon: "sparkles", disabled: processing || transcribing || voice.isRecording, action: {
                     UIApplication.shared.dismissKeyboard()
                     Task { await organiseDraft() }
                 })
@@ -120,6 +155,17 @@ struct CaptureView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(18)
+        }
+        .disabled(processing || transcribing)
+        .sheet(item: $proposal) { draft in
+            DraftProposalView(proposal: draft, quoteID: quoteID) { changes, observations in
+                store.apply(changes, observations: observations, to: quoteID)
+                proposal = nil
+                next()
+            }
+        }
+        .sheet(item: $photoEditing) { context in
+            PhotoEvidenceEditor(context: context, quoteID: quoteID)
         }
         .keyboardDoneButton()
         .background(Theme.bg)
@@ -166,54 +212,38 @@ struct CaptureView: View {
         }
         processing = true
         defer { processing = false }
-        var produced: [QuoteLine] = []
-        var newTitle: String?
-        var errors: [String] = []
-        var photoUnsupported = false
+        var changes: [DraftChange] = []
+        var observations: [PhotoObservation] = []
+        var warnings: [String] = []
         if !quote.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            processingMessage = "Organising dictation…"
+            processingMessage = "Extracting supported facts and matching your jobs…"
             do {
-                let (title, items) = try await DraftAI.extractVoice(quote.notes)
-                produced.append(contentsOf: items)
-                newTitle = title
-            } catch { errors.append("Voice: \(error.localizedDescription)") }
+                let result = try await DraftAI.extractVoice(quote.notes, source: .note, recipes: store.recipes, existing: quote.lines)
+                changes = result.changes.map { change in
+                    var change = change
+                    if (quote.voiceTranscripts ?? []).contains(where: { $0.contains(change.line.sourceDetail) }) { change.line.source = .voice }
+                    return change
+                }
+                warnings += result.warnings
+            } catch { warnings.append(error.localizedDescription) }
         }
-        for filename in quote.photoNames.prefix(6) {
-            processingMessage = "Reviewing photo…"
-            guard let image = store.photo(named: filename) else { continue }
-            do { produced.append(contentsOf: try await DraftAI.extractPhoto(image, filename: filename)) }
-            catch DraftAI.Failure.photoNeedsNewerOS {
-                photoUnsupported = true
-                break
-            } catch {
-                errors.append("Photo: \(error.localizedDescription)")
-                // The same limitation applies to every remaining photo; don't repeat it six times.
-                if error is DraftAI.Failure { break }
-            }
+        for filename in quote.photoNames {
+            processingMessage = "Recording photo observations…"
+            guard let image = store.photo(named: filename) else { warnings.append("A source photo could not be opened."); continue }
+            let context = quote.photoContexts?.first(where: { $0.filename == filename }) ?? PhotoContext(filename: filename)
+            do { observations += try await DraftAI.extractPhoto(image, context: context, notes: quote.notes) }
+            catch { warnings.append(error.localizedDescription); if error is DraftAI.Failure { break } }
         }
-        store.editQuote(quoteID, scopeChanged: true) { draft in
-            if let newTitle, !newTitle.isEmpty { draft.title = newTitle }
-            for line in produced {
-                // Re-analysis is idempotent for identical suggestions; no approved item is overwritten.
-                if !draft.lines.contains(where: {
-                    $0.title.caseInsensitiveCompare(line.title) == .orderedSame &&
-                    $0.source == line.source && $0.sourceDetail == line.sourceDetail
-                }) { draft.lines.append(line) }
-            }
+        guard store.quote(quoteID)?.notes == quote.notes, store.quote(quoteID)?.photoNames == quote.photoNames else {
+            warnings.append("The job changed during analysis. Run analysis again against the current evidence.")
+            report(AnalysisFailure.changed)
+            return
         }
-        // Older systems can't read photos; only mention it when nothing else came out of the draft.
-        if photoUnsupported && produced.isEmpty {
-            errors.append(DraftAI.Failure.photoNeedsNewerOS.localizedDescription)
-        }
-        if !errors.isEmpty {
-            var seen = Set<String>()
-            error = errors.filter { seen.insert($0).inserted }.joined(separator: "\n")
+        if changes.isEmpty && observations.isEmpty {
+            error = (["No new supported changes. Existing items have been preserved. Add a recipe or edit items in Review."] + warnings).joined(separator: "\n")
             showError = true
-        }
-        if !produced.isEmpty { next() }
-        else if errors.isEmpty {
-            error = "No work items could be evidenced. Add them manually in Review."
-            showError = true
+        } else {
+            proposal = DraftProposal(changes: changes, observations: observations, warnings: Array(Set(warnings)).sorted())
         }
     }
 }
@@ -264,4 +294,10 @@ private struct CaptureTile: View {
         .frame(maxWidth: .infinity, minHeight: 120)
         .background(Theme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
     }
+}
+
+
+private enum AnalysisFailure: LocalizedError {
+    case changed
+    var errorDescription: String? { "The job changed during analysis. Run it again against the current evidence." }
 }

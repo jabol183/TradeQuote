@@ -4,251 +4,247 @@ import QuoteCore
 struct ReviewView: View {
     @Environment(TradeQuoteStore.self) private var store
     let quoteID: UUID
-    /// Set when the quote was reopened from the list, so photos or dictation can still be added.
     var addEvidence: (() -> Void)? = nil
     let next: () -> Void
     @State private var editing: QuoteLine?
     @State private var addingCustomer = false
-
+    @State private var recipes = false
+    @State private var history = false
+    @State private var selected = Set<UUID>()
+    @State private var promoted: PhotoObservation?
     private var quote: Quote? { store.quote(quoteID) }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 17) {
-                Heading(text: "Review items")
-                Text("AI-organised scope is a draft. Confirm every item, quantity and material specification before pricing.")
+                Heading(text: "Review the job")
+                Text("Confirm the requested work and highlighted quantities. Photos are evidence; your approval establishes scope.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                if let addEvidence {
-                    Button(action: addEvidence) {
-                        Label("Add photos or dictation", systemImage: "camera.badge.ellipsis")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                }
+                if let addEvidence { Button("Add photos or dictation", action: addEvidence) }
                 if let quote {
-                    // The title isn't priced scope, so renaming doesn't reset approvals.
-                    TextField("Job title", text: Binding(
-                        get: { store.quote(quoteID)?.title ?? "" },
-                        set: { value in store.editQuote(quoteID) { $0.title = value } }
-                    ))
-                    .submitLabel(.done)
-                    .font(.title3.bold())
-                    .padding(12)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
-
+                    TextField("Job title", text: Binding(get: { store.quote(quoteID)?.title ?? "" }, set: { value in store.editQuote(quoteID) { $0.title = value } }))
+                        .font(.title3.bold()).padding(12).background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
+                    HStack {
+                        Button { recipes = true } label: { Label("Add job recipe", systemImage: "square.stack.3d.up") }
+                        Spacer()
+                        Button { history = true } label: { Label("Undo / history", systemImage: "clock.arrow.circlepath") }
+                    }.font(.subheadline)
+                    LabourBillingPanel(quoteID: quoteID)
                     VStack(alignment: .leading, spacing: 8) {
                         Heading(text: "Customer")
-                        Picker("Assign customer", selection: Binding(
-                            get: { store.quote(quoteID)?.customerID },
-                            set: { id in store.editQuote(quoteID) { $0.customerID = id } }
-                        )) {
+                        Picker("Assign customer", selection: Binding(get: { store.quote(quoteID)?.customerID }, set: { id in store.editQuote(quoteID) { $0.customerID = id } })) {
                             Text("Select customer").tag(nil as UUID?)
-                            ForEach(store.customers) { customer in
-                                Text(customer.name).tag(Optional(customer.id))
-                            }
+                            ForEach(store.customers) { Text($0.name).tag(Optional($0.id)) }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Button {
-                            addingCustomer = true
-                        } label: { Label("Add customer", systemImage: "plus.circle") }
-                            .font(.subheadline)
+                        Button("Add customer") { addingCustomer = true }
+                    }.padding(12).background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
+                    ForEach(quote.lines) { line in
+                        ReviewItemCard(quoteID: quoteID, lineID: line.id, selected: Binding(get: { selected.contains(line.id) }, set: { flag in
+                            if flag { selected.insert(line.id) } else { selected.remove(line.id) }
+                        }), edit: { editing = line })
                     }
-                    .padding(12)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
-
-                    ForEach(LineCategory.allCases, id: \.self) { category in
-                        let lines = quote.lines.filter { $0.category == category }
-                        if !lines.isEmpty {
-                            Heading(text: category.rawValue)
-                            ForEach(lines) { item in
-                                Button { editing = item } label: { itemRow(item) }
-                                    .buttonStyle(.plain)
+                    if !selected.isEmpty {
+                        Button("Confirm selected complete items (\(selected.count))") {
+                            store.editQuote(quoteID, scopeChanged: true) { quote in
+                                for i in quote.lines.indices where selected.contains(quote.lines[i].id) && WorkflowRules.canConfirm(quote.lines[i]) { quote.lines[i].isReviewed = true }
                             }
+                            selected.removeAll()
                         }
                     }
-                    Button {
-                        editing = QuoteLine(title: "", category: .labour, source: .manual, quantity: 1)
-                    } label: {
-                        Label("Add item manually", systemImage: "plus")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .padding(.vertical, 9)
-
-                    if !quote.photoNames.isEmpty {
-                        Heading(text: "Source photos")
-                        ScrollView(.horizontal) {
-                            HStack {
-                                ForEach(quote.photoNames, id: \.self) { filename in
-                                    PhotoThumb(filename: filename)
-                                        .contextMenu {
-                                            Button("Remove photo", role: .destructive) {
-                                                store.removePhoto(filename, from: quoteID)
-                                            }
-                                        }
-                                }
-                            }
+                    Button { editing = QuoteLine(title: "", category: .labour, source: .manual, quantity: 1) } label: { Label("Add item manually", systemImage: "plus") }
+                    if let observations = quote.observations, !observations.isEmpty {
+                        Heading(text: "Photo observations")
+                        ForEach(observations) { observation in
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .top) { PhotoThumb(filename: observation.filename); Text(observation.text).font(.subheadline) }
+                                if observation.promotedLineID == nil {
+                                    Button("Create work item from this observation") {
+                                        promoted = observation
+                                        var line = QuoteLine(title: "", category: .labour, source: .photo, sourceDetail: observation.text,
+                                            confirmationPrompt: "Describe the work you actually want to quote.")
+                                        line.confirmationKind = .instruction; line.linkedPhotos = [observation.filename]
+                                        editing = line
+                                    }
+                                } else { Label("Linked to work item", systemImage: "link").font(.caption) }
+                            }.padding(12).background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
                         }
                     }
-
-                    Toggle("I checked the materials required for this job", isOn: Binding(
-                        get: { store.quote(quoteID)?.materialsConfirmed ?? false },
-                        set: { flag in store.editQuote(quoteID, scopeChanged: true) { $0.materialsConfirmed = flag } }
-                    ))
-                    .tint(Theme.blue)
-                    .padding(14)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                    Toggle("I checked all materials required, including customer supply", isOn: Binding(get: { store.quote(quoteID)?.materialsConfirmed ?? false }, set: { flag in store.editQuote(quoteID, scopeChanged: true) { $0.materialsConfirmed = flag } }))
+                        .tint(Theme.blue)
                     ValidationMessages(messages: QuoteRules.reviewProblems(quote).map(\.rawValue))
-                    ActionButton(title: quote.reviewApprovedAt == nil ? "Approve scope & continue" : "Continue to pricing",
-                                 icon: "checkmark.shield",
-                                 disabled: !QuoteRules.reviewProblems(quote).isEmpty) {
-                        store.review(quoteID)
-                        next()
+                    ActionButton(title: "Approve scope & continue", icon: "checkmark.shield", disabled: !QuoteRules.reviewProblems(quote).isEmpty) {
+                        store.review(quoteID); next()
                     }
-                    Text("Your approval confirms the actual work and quantities; the AI does not supply approval.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-            }
-            .padding(17)
+            }.padding(17)
         }
-        .keyboardDoneButton()
-        .background(Theme.bg)
-        .navigationTitle("AI Analysis")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $editing) { item in
-            LineEditor(line: item,
-                       canDelete: store.quote(quoteID)?.lines.contains(where: { $0.id == item.id }) == true,
-                       onSave: { revised in
-                store.editQuote(quoteID, scopeChanged: true) { quote in
-                    if let index = quote.lines.firstIndex(where: { $0.id == revised.id }) { quote.lines[index] = revised }
-                    else { quote.lines.append(revised) }
+        .keyboardDoneButton().background(Theme.bg).navigationTitle("Review scope").navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editing, onDismiss: { promoted = nil }) { item in
+            LineEditor(line: item, quoteID: quoteID, canDelete: quote?.lines.contains(where: { $0.id == item.id }) == true, onSave: { line in
+                store.saveLine(line, in: quoteID)
+                if let promoted {
+                    store.editQuote(quoteID) { quote in
+                        if let i = quote.observations?.firstIndex(where: { $0.id == promoted.id }) { quote.observations?[i].promotedLineID = line.id }
+                    }
                 }
                 editing = nil
             }, onDelete: {
-                store.editQuote(quoteID, scopeChanged: true) { $0.lines.removeAll { $0.id == item.id } }
-                editing = nil
+                store.checkpoint(quoteID, reason: "Before removing item")
+                store.editQuote(quoteID, scopeChanged: true) { $0.lines.removeAll { $0.id == item.id } }; editing = nil
             })
         }
-        .sheet(isPresented: $addingCustomer) {
-            CustomerEditor(customer: Customer()) { store.updateCustomer($0) }
-        }
+        .sheet(isPresented: $addingCustomer) { CustomerEditor(customer: Customer()) { store.updateCustomer($0) } }
+        .sheet(isPresented: $recipes) { NavigationStack { RecipeLibraryView { store.saveLine($0.scopeLine(), in: quoteID) } } }
+        .sheet(isPresented: $history) { VersionHistoryView(quoteID: quoteID) }
     }
-
-    private func itemRow(_ line: QuoteLine) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: line.isReviewed ? "checkmark.circle.fill" : "exclamationmark.circle")
-                .font(.title2)
-                .foregroundStyle(line.isReviewed ? .green : .orange)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(line.title.isEmpty ? "Unnamed item" : line.title)
-                    .font(.subheadline.bold()).foregroundStyle(.primary)
+}
+private struct ReviewItemCard: View {
+    @Environment(TradeQuoteStore.self) private var store
+    let quoteID: UUID
+    let lineID: UUID
+    @Binding var selected: Bool
+    let edit: () -> Void
+    private var line: QuoteLine? { store.quote(quoteID)?.lines.first { $0.id == lineID } }
+    private func update(_ change: (inout QuoteLine) -> Void) {
+        guard var line else { return }
+        change(&line); line.isReviewed = false
+        store.saveLine(line, in: quoteID)
+    }
+    var body: some View {
+        if let line {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Toggle("Select \(line.title)", isOn: $selected).labelsHidden()
+                    Text(line.title).font(.headline)
+                    Spacer()
+                    Button("Edit", action: edit)
+                }
                 HStack {
                     SourceLabel(source: line.source)
-                    Text("· \(line.quantity?.editable ?? "Qty not set") \(line.unit)")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("\(line.isApproximate == true ? "≈ " : "")\(line.quantity?.editable ?? "Qty missing") \(line.unit)").font(.headline).foregroundStyle(.orange)
+                    Spacer()
+                    Button { update { $0.quantity = max(1, ($0.quantity ?? 1) - 1) } } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Decrease quantity")
+                    Button { update { $0.quantity = min(10000, ($0.quantity ?? 0) + 1) } } label: { Image(systemName: "plus.circle") }.accessibilityLabel("Increase quantity")
                 }
-                if line.confirmationPrompt != nil && (line.specification.isEmpty || !line.isReviewed) {
-                    Text("Needs confirmation").font(.caption.weight(.medium)).foregroundStyle(.orange)
-                } else if !line.isReviewed {
-                    Text("Not yet reviewed").font(.caption).foregroundStyle(.orange)
+                if !line.sourceDetail.isEmpty { Text("Evidence: \(line.sourceDetail)").font(.caption).foregroundStyle(.secondary) }
+                if let room = line.room, !room.isEmpty { Text(room).font(.caption) }
+                if let question = line.confirmationPrompt, WorkflowRules.needsSpecification(line), line.specification.isEmpty {
+                    Button(question, action: edit).font(.subheadline)
                 }
-                if !line.specification.isEmpty { Text(line.specification).font(.caption).foregroundStyle(.secondary) }
-            }
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                if line.recipeID != nil || line.category == .materials {
+                    Picker("Who supplies materials?", selection: Binding(get: { line.supply ?? .unknown }, set: { value in update { $0.supply = value } })) {
+                        ForEach(MaterialSupply.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.font(.subheadline)
+                }
+                if line.disposition == .optional {
+                    Toggle("Include optional work in this quote", isOn: Binding(get: { line.optionalSelected ?? false }, set: { value in update { $0.optionalSelected = value } }))
+                } else if line.disposition == .excluded { Text("Excluded from total").font(.caption).foregroundStyle(.secondary) }
+                if let photos = line.linkedPhotos, !photos.isEmpty {
+                    ScrollView(.horizontal) { HStack { ForEach(photos, id: \.self) { PhotoThumb(filename: $0) } } }
+                }
+                HStack {
+                    Label(line.isReviewed ? "Confirmed by you" : "Needs your review", systemImage: line.isReviewed ? "checkmark.circle.fill" : "circle")
+                        .font(.caption).foregroundStyle(line.isReviewed ? .green : .orange)
+                    Spacer()
+                    if !line.isReviewed {
+                        Button("Confirm item") {
+                            store.editQuote(quoteID, scopeChanged: true) { quote in
+                                if let i = quote.lines.firstIndex(where: { $0.id == lineID }) { quote.lines[i].isReviewed = true }
+                            }
+                        }.disabled(!WorkflowRules.canConfirm(line))
+                    }
+                }
+            }.padding(13).background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
         }
-        .padding(13)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
 struct LineEditor: View {
+    @Environment(TradeQuoteStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var line: QuoteLine
     @State private var quantityText: String
     private let original: QuoteLine
+    var quoteID: UUID? = nil
     let canDelete: Bool
     let onSave: (QuoteLine) -> Void
     let onDelete: () -> Void
-
-    init(line: QuoteLine, canDelete: Bool, onSave: @escaping (QuoteLine) -> Void, onDelete: @escaping () -> Void) {
-        _line = State(initialValue: line)
-        original = line
-        _quantityText = State(initialValue: line.quantity?.editable ?? "")
-        self.canDelete = canDelete
-        self.onSave = onSave
-        self.onDelete = onDelete
+    init(line: QuoteLine, quoteID: UUID? = nil, canDelete: Bool, onSave: @escaping (QuoteLine) -> Void, onDelete: @escaping () -> Void) {
+        var draft = line; draft.isReviewed = false
+        _line = State(initialValue: draft); original = line; _quantityText = State(initialValue: line.quantity?.editable ?? "")
+        self.quoteID = quoteID; self.canDelete = canDelete; self.onSave = onSave; self.onDelete = onDelete
     }
-
-    private let units = ["each", "h", "day", "m", "m²", "set"]
-
     var body: some View {
         NavigationStack {
             Form {
-                Section("Scope") {
-                    TextField("Work item", text: $line.title)
-                    Picker("Type", selection: $line.category) {
-                        ForEach(LineCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                Section("Work and quantity") {
+                    TextField("Work requested", text: $line.title)
+                    Picker("Category", selection: $line.category) { ForEach(LineCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                    HStack { TextField("Quantity", text: $quantityText).keyboardType(.decimalPad); TextField("Unit", text: $line.unit) }
+                    Toggle("Approximate allowance", isOn: Binding(get: { line.isApproximate ?? false }, set: { line.isApproximate = $0 }))
+                    TextField("Room / location", text: Binding(get: { line.room ?? "" }, set: { line.room = $0 }))
+                    Picker("Scope", selection: Binding(get: { line.disposition ?? .included }, set: { line.disposition = $0 })) {
+                        ForEach(ScopeDisposition.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
-                    HStack {
-                        TextField("Quantity", text: $quantityText)
-                            .keyboardType(.decimalPad)
-                        TextField("Unit (h, each, m…)", text: $line.unit)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        Menu {
-                            ForEach(units, id: \.self) { unit in
-                                Button(unit) { line.unit = unit }
+                }
+                Section("Job recipe and missing details") {
+                    Picker("Recipe", selection: $line.recipeID) {
+                        Text("Custom work").tag(nil as UUID?)
+                        ForEach(store.recipes) { Text($0.name).tag(Optional($0.id)) }
+                    }.onChange(of: line.recipeID) { _, id in
+                        guard let recipe = store.recipes.first(where: { $0.id == id }) else { return }
+                        line.title = recipe.name; line.unit = recipe.unit; line.category = .labour
+                        line.confirmationPrompt = recipe.specificationQuestion.isEmpty ? nil : recipe.specificationQuestion
+                        line.confirmationKind = .specification
+                        line.supply = recipe.asksSupply ? .unknown : MaterialSupply.none
+                        line.needsRateMatch = false
+                    }
+                    if let question = line.confirmationPrompt { Text(question).foregroundStyle(.orange) }
+                    TextField("Specification / answer", text: $line.specification, axis: .vertical).lineLimit(2...6)
+                    Picker("Material supply", selection: Binding(get: { line.supply ?? .unknown }, set: { line.supply = $0 })) {
+                        ForEach(MaterialSupply.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    if let recipe = store.recipes.first(where: { $0.id == line.recipeID }) {
+                        if !recipe.inclusions.isEmpty { Text("Standard inclusions to check: \(recipe.inclusions)").font(.caption) }
+                        if !recipe.exclusions.isEmpty { Text("Standard exclusions to check: \(recipe.exclusions)").font(.caption) }
+                        if !recipe.inclusions.isEmpty || !recipe.exclusions.isEmpty {
+                            Button("Append checked recipe wording") {
+                                line.specification += "\n" + [recipe.inclusions.isEmpty ? "" : "Includes: " + recipe.inclusions, recipe.exclusions.isEmpty ? "" : "Excludes: " + recipe.exclusions].filter { !$0.isEmpty }.joined(separator: "\n")
                             }
-                        } label: {
-                            Image(systemName: "chevron.up.chevron.down")
                         }
-                        .accessibilityLabel("Choose unit")
                     }
-                    TextField("Specification / material / model", text: $line.specification, axis: .vertical)
-                        .lineLimit(2...5)
                 }
                 Section("Evidence") {
                     SourceLabel(source: line.source)
-                    if !line.sourceDetail.isEmpty {
-                        Text(line.sourceDetail).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if let question = line.confirmationPrompt {
-                        Label(question, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote).foregroundStyle(.orange)
+                    Text(line.sourceDetail).font(.footnote)
+                    if let quoteID, let quote = store.quote(quoteID) {
+                        ForEach(quote.photoNames, id: \.self) { name in
+                            Toggle(isOn: Binding(get: { line.linkedPhotos?.contains(name) ?? false }, set: { flag in
+                                var photos = line.linkedPhotos ?? []; photos.removeAll { $0 == name }; if flag { photos.append(name) }; line.linkedPhotos = photos
+                            })) { PhotoThumb(filename: name) }
+                        }
                     }
                 }
                 Section {
-                    Toggle("I verified this scope, quantity and specification", isOn: $line.isReviewed)
-                        .tint(.green)
-                    Text("Confirmation is your decision, never AI-generated.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("I verified scope, quantity and specification", isOn: $line.isReviewed)
+                    if let quoteID, let recipe = store.recipes.first(where: { $0.id == line.recipeID }), !recipe.components.isEmpty, canDelete {
+                        Button("Save and expand configured recipe components") {
+                            finish(); store.expandRecipe(for: line.id, in: quoteID)
+                        }.disabled((quantityText.asDecimal ?? 0) <= 0 || line.supply == .unknown)
+                    }
                 }
-                if canDelete {
-                    Button("Delete item", role: .destructive) { onDelete(); dismiss() }
-                }
+                if canDelete { Button("Delete item", role: .destructive) { onDelete(); dismiss() } }
             }
-            .keyboardDoneButton()
-            .navigationTitle("Edit item")
-            .navigationBarTitleDisplayMode(.inline)
+            .keyboardDoneButton().navigationTitle("Edit item").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        line.quantity = quantityText.asDecimal
-                        if line.quantity == nil || line.quantity! <= 0 || line.title.trimmingCharacters(in: .whitespaces).isEmpty ||
-                           (line.confirmationPrompt != nil && line.specification.trimmingCharacters(in: .whitespaces).isEmpty) {
-                            line.isReviewed = false
-                        }
-                        // A different category or unit can't use the previously chosen rate.
-                        if line.category != original.category || !QuoteRules.unitsMatch(line.unit, original.unit) {
-                            line.rateID = nil
-                        }
-                        line.approvedUnitPrice = nil
-                        onSave(line)
-                        dismiss()
-                    }
-                    .disabled(line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                ToolbarItem(placement: .confirmationAction) { Button("Save", action: finish).disabled(line.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
         }
+    }
+    private func finish() {
+        line.quantity = quantityText.asDecimal
+        if !WorkflowRules.canConfirm(line) { line.isReviewed = false }
+        if line.category != original.category || !QuoteRules.unitsMatch(line.unit, original.unit) || line.recipeID != original.recipeID { line.rateID = nil }
+        line.approvedUnitPrice = nil; onSave(line); dismiss()
     }
 }
