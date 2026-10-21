@@ -9,7 +9,7 @@ struct EvaluationView: View {
     var body: some View {
         List {
             Section {
-                Text("Runs ten fixed sample notes through the existing on-device model. No customer records are used or changed. Quantity checks are a diagnostic; inspect scope, supply and exclusions yourself.").font(.subheadline)
+                Text("Runs ten fixed notes through the production extraction path. Checks item count, quantities, units, rooms, supply, optionality, exclusions and approximate hours. Apple catalogue matching is used only when needed. Customer records are unchanged.").font(.subheadline)
                 Button(running ? "Running…" : "Run on this device") {
                     running = true; results = [:]
                     task = Task { @MainActor in
@@ -19,11 +19,9 @@ struct EvaluationView: View {
                             let started = Date()
                             do {
                                 let result = try await DraftAI.extractVoice(example.note, source: .note, recipes: store.recipes, existing: [])
-                                let quantities = result.changes.compactMap { $0.line.quantity }.sorted()
-                                let expected = example.quantities.sorted()
-                                let summary = result.changes.map { "\($0.line.title): \($0.line.quantity?.editable ?? "?") \($0.line.unit), \($0.line.disposition?.rawValue ?? "Included"), supply \($0.line.supply?.rawValue ?? "unknown")" }.joined(separator: "\n")
-                                let match = quantities == expected
-                                results[example.id] = "\(match ? "Quantity check passed" : "Quantity mismatch — inspect output") · \(String(format: "%.1f", Date().timeIntervalSince(started)))s\n\(summary)\n\(result.warnings.joined(separator: "\n"))"
+                                let failures = ExtractionChecks.problems(result.changes.map(\.line), expected: example.expected)
+                                let summary = result.changes.map { "\($0.line.title): \($0.line.quantity?.editable ?? "?") \($0.line.unit), \($0.line.disposition?.rawValue ?? "Included"), supply \($0.line.supply?.rawValue ?? "unknown"), room \($0.line.room ?? "—"), approximate \($0.line.isApproximate == true ? "yes" : "no")" }.joined(separator: "\n")
+                                results[example.id] = "\(failures.isEmpty ? "All fact checks passed" : "FAILED: " + failures.joined(separator: " ")) · \(String(format: "%.1f", Date().timeIntervalSince(started)))s\n\(summary)\n\(result.warnings.joined(separator: "\n"))"
                             } catch { results[example.id] = error.localizedDescription }
                         }
                     }

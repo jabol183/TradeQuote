@@ -86,6 +86,8 @@ public struct QuoteLine: Codable, Identifiable, Equatable, Sendable {
     public var approvedUnitPrice: Decimal?
     public var recipeID: UUID? = nil
     public var room: String? = nil
+    public var sourceStart: Int? = nil
+    public var sourceLength: Int? = nil
     public var isApproximate: Bool? = nil
     public var disposition: ScopeDisposition? = nil
     public var optionalSelected: Bool? = nil

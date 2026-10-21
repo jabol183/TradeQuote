@@ -12,7 +12,7 @@ on:
         required: false
         default: ""
   push:
-    branches: ["feature/reliable-quoting"]
+    branches: ["feature/reliable-quoting", "fix/grounded-extraction"]
     tags: ["v*"]
 
 concurrency:

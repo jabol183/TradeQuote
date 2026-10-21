@@ -202,9 +202,15 @@ public enum WorkflowRules {
                 ((old.recipeID != nil && old.recipeID == proposed.recipeID) || normalized(old.title) == normalized(proposed.title))
             }
             if matches.count == 1, let old = matches.first {
-                if old.quantity == proposed.quantity && old.specification == proposed.specification &&
-                    old.disposition == proposed.disposition && old.supply == proposed.supply { continue }
                 var revised = proposed
+                // Reanalysis cannot erase details the contractor already verified just because
+                // a later note omits them. Explicit source changes still require a change preview.
+                if old.isReviewed {
+                    if revised.specification.isEmpty { revised.specification = old.specification }
+                    if revised.supply == .unknown || revised.supply == nil { revised.supply = old.supply }
+                }
+                if old.quantity == revised.quantity && old.specification == revised.specification &&
+                    (old.disposition ?? .included) == (revised.disposition ?? .included) && old.supply == revised.supply { continue }
                 revised.id = old.id
                 revised.rateID = old.rateID
                 revised.linkedPhotos = Array(Set((old.linkedPhotos ?? []) + (proposed.linkedPhotos ?? [])))

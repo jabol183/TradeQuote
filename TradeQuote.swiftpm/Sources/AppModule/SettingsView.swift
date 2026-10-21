@@ -51,7 +51,7 @@ struct SettingsView: View {
                 row("Data & Privacy", icon: "lock.shield", panel: .privacy)
             }
             Section {
-                Text("TradeQuote AI · Version 1.1\nQuotes and job photos are stored locally on this device.")
+                Text("TradeQuote AI · Version 1.1.1\nQuotes and job photos are stored locally on this device.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
