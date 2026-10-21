@@ -216,12 +216,22 @@ public enum WorkflowRules {
                 continue
             }
             let matches = existing.filter { old in
-                old.category == proposed.category && QuoteRules.unitsMatch(old.unit, proposed.unit) &&
+                let capturedMatch = proposed.workActionRequired == true && old.capturedWorkObject != nil &&
+                    normalized(old.capturedWorkObject ?? "") == normalized(proposed.capturedWorkObject ?? "")
+                return QuoteRules.unitsMatch(old.unit, proposed.unit) &&
                 normalized(old.room ?? "") == normalized(proposed.room ?? "") &&
-                ((old.recipeID != nil && old.recipeID == proposed.recipeID) || normalized(old.title) == normalized(proposed.title))
+                (capturedMatch || (old.category == proposed.category &&
+                    ((old.recipeID != nil && old.recipeID == proposed.recipeID) || normalized(old.title) == normalized(proposed.title))))
             }
             if matches.count == 1, let old = matches.first {
                 var revised = proposed
+                // The source still omits an action; it cannot erase a manual choice made in Review.
+                if proposed.workActionRequired == true, old.workActionRequired == false {
+                    revised.title = old.title; revised.category = old.category; revised.recipeID = old.recipeID
+                    revised.workActionRequired = false
+                    revised.confirmationPrompt = old.confirmationPrompt; revised.confirmationKind = old.confirmationKind
+                    if revised.supply == .unknown || revised.supply == nil { revised.supply = old.supply }
+                }
                 // Reanalysis cannot erase details the contractor already verified just because
                 // a later note omits them. Explicit source changes still require a change preview.
                 if old.isReviewed {

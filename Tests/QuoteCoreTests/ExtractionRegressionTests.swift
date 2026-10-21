@@ -72,6 +72,31 @@ final class ExtractionRegressionTests: XCTestCase {
         let legacy = try JSONDecoder().decode(QuoteLine.self, from: JSONSerialization.data(withJSONObject: old))
         XCTAssertNil(legacy.workActionRequired)
     }
+    func testReanalysisRetainsChosenActionAndUpdatesInsteadOfDuplicating() throws {
+        let captured = try XCTUnwrap(SourceExtraction.prepare("2 sockets in kitchen", source: .note, recipes: []).lines.first)
+        for action in [WorkAction.replace, .supply] {
+            let old = WorkflowRules.choosingAction(action, for: captured)
+            XCTAssertTrue(WorkflowRules.reconcile([captured], existing: [old]).isEmpty)
+            var incoming = captured; incoming.quantity = 3
+            let changes = WorkflowRules.reconcile([incoming], existing: [old])
+            XCTAssertEqual(changes.count, 1)
+            XCTAssertEqual(changes.first?.operation, .update)
+            XCTAssertEqual(changes.first?.line.id, old.id)
+            XCTAssertEqual(changes.first?.line.title, old.title)
+            XCTAssertEqual(changes.first?.line.category, old.category)
+            XCTAssertEqual(changes.first?.line.supply, old.supply)
+            XCTAssertEqual(changes.first?.line.quantity, 3)
+            XCTAssertEqual(changes.first?.line.workActionRequired, false)
+        }
+    }
+    func testReanalysisRequiresDuplicateResolutionWhenActionsDiffer() throws {
+        let captured = try XCTUnwrap(SourceExtraction.prepare("2 sockets", source: .note, recipes: []).lines.first)
+        var replacement = WorkflowRules.choosingAction(.replace, for: captured); replacement.id = UUID()
+        let existing = [WorkflowRules.choosingAction(.install, for: captured), replacement]
+        let changes = WorkflowRules.reconcile([captured], existing: existing)
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.operation, .conflict)
+    }
     func testEveryDeviceScreenshotScenarioThroughProductionFactPreparation() {
         for example in ExtractionExample.cases {
             let result = SourceExtraction.prepare(example.note, source: .voice, recipes: JobRecipe.starters)
