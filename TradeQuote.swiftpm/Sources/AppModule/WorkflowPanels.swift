@@ -44,7 +44,10 @@ struct DecimalEntry: View {
     var body: some View {
         TextField(title, text: $text).keyboardType(.decimalPad)
             .onAppear { text = value?.editable ?? "" }
-            .onChange(of: text) { _, new in value = new.isEmpty ? nil : new.asDecimal }
+            .onChange(of: text) { _, new in
+                let parsed = new.isEmpty ? nil : new.asDecimal
+                if parsed != value { value = parsed }
+            }
     }
 }
 struct VersionHistoryView: View {

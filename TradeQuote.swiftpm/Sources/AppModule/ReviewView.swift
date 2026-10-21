@@ -169,7 +169,8 @@ struct LineEditor: View {
     let onSave: (QuoteLine) -> Void
     let onDelete: () -> Void
     init(line: QuoteLine, quoteID: UUID? = nil, canDelete: Bool, onSave: @escaping (QuoteLine) -> Void, onDelete: @escaping () -> Void) {
-        _line = State(initialValue: line); original = line; _quantityText = State(initialValue: line.quantity?.editable ?? "")
+        var draft = line; draft.isReviewed = false
+        _line = State(initialValue: draft); original = line; _quantityText = State(initialValue: line.quantity?.editable ?? "")
         self.quoteID = quoteID; self.canDelete = canDelete; self.onSave = onSave; self.onDelete = onDelete
     }
     var body: some View {

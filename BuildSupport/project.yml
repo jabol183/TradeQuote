@@ -39,7 +39,7 @@ targets:
         CODE_SIGN_STYLE: $(TQ_SIGN_STYLE)
         CODE_SIGN_IDENTITY: $(TQ_SIGN_IDENTITY)
         PROVISIONING_PROFILE_SPECIFIER: $(TQ_PROFILE)
-        MARKETING_VERSION: "1.0.0"
+        MARKETING_VERSION: "1.1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -54,3 +54,4 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ENABLE_PREVIEWS: YES
     scheme: {}
+

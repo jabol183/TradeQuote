@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import UIKit
 import QuoteCore
+import UserNotifications
 
 @MainActor @Observable
 final class TradeQuoteStore {
@@ -141,6 +142,7 @@ final class TradeQuoteStore {
     func deleteQuote(_ id: UUID) {
         guard let quote = quote(id) else { return }
         snapshot.quotes.removeAll { $0.id == id }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id.uuidString])
         for name in quote.photoNames { deletePhotoFileIfUnused(name) }
         try? FileManager.default.removeItem(at: Self.pdfFolder.appendingPathComponent("\(id.uuidString).pdf"))
         persist()
@@ -152,7 +154,10 @@ final class TradeQuoteStore {
         // Never pretend delivery or customer acceptance happened automatically.
         snapshot.quotes[index].status = status
         if status == .sent { snapshot.quotes[index].sentAt = .now }
-        if status == .accepted || status == .declined { snapshot.quotes[index].responseRecordedAt = .now }
+        if status == .accepted || status == .declined {
+            snapshot.quotes[index].responseRecordedAt = .now
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id.uuidString])
+        }
         persist()
     }
 
@@ -172,9 +177,20 @@ final class TradeQuoteStore {
         original.approvedTerms = nil
         original.expiresAt = Calendar.current.date(byAdding: .day, value: 30, to: .now)
         original.followUpAt = nil
+        let lineIDs = Dictionary(uniqueKeysWithValues: original.lines.map { ($0.id, UUID()) })
+        original.photoContexts = original.photoContexts?.map { context in
+            var context = context
+            context.lineID = context.lineID.flatMap { lineIDs[$0] }
+            return context
+        }
+        original.observations = original.observations?.map { observation in
+            var observation = observation
+            observation.promotedLineID = observation.promotedLineID.flatMap { lineIDs[$0] }
+            return observation
+        }
         original.lines = original.lines.map { line in
             var line = line
-            line.id = UUID()
+            line.id = lineIDs[line.id] ?? UUID()
             line.isReviewed = false
             return line
         }
@@ -344,6 +360,11 @@ final class TradeQuoteStore {
                 switch change.operation {
                 case .remove:
                     quote.lines.removeAll { $0.id == change.existingID }
+                    quote.observations = quote.observations?.map { observation in
+                        var observation = observation
+                        if observation.promotedLineID == change.existingID { observation.promotedLineID = nil }
+                        return observation
+                    }
                 case .update:
                     if let index = quote.lines.firstIndex(where: { $0.id == change.existingID }) {
                         var line = change.line
@@ -448,6 +469,7 @@ final class TradeQuoteStore {
             for name in moved { try? fm.moveItem(at: recovery.appendingPathComponent(name), to: Self.docs.appendingPathComponent(name)) }
             throw error
         }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: snapshot.quotes.map { $0.id.uuidString })
         snapshot = restored
         failureMessage = nil
         try? fm.removeItem(at: recovery)

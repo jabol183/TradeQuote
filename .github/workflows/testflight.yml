@@ -12,6 +12,7 @@ on:
         required: false
         default: ""
   push:
+    branches: ["feature/reliable-quoting"]
     tags: ["v*"]
 
 concurrency:
@@ -63,6 +64,9 @@ jobs:
         run: |
           xcodebuild -version
           swift --version
+
+      - name: Validate quote rules before signing
+        run: swift test
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -133,7 +137,7 @@ jobs:
           VERSION="$VERSION_INPUT"
           if [ -z "$VERSION" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; fi
           # Build numbers must always increase; a UTC timestamp does that across reruns and versions.
-          BUILD_NUMBER=$(date -u +%y%m%d%H%M)
+          BUILD_NUMBER=$(date -u +%y%m%d%H%M%S)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "Version: ${VERSION:-<project default>}  Build: $BUILD_NUMBER"
@@ -159,7 +163,11 @@ jobs:
             # Cloud signing: Xcode signs with an Apple-managed distribution certificate during export.
             args+=(CODE_SIGNING_ALLOWED=NO)
           fi
-          xcodebuild archive "${args[@]}" | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|\*\* ARCHIVE" || true
+          if ! xcodebuild archive "${args[@]}" > "$RUNNER_TEMP/archive.log" 2>&1; then
+            tail -n 120 "$RUNNER_TEMP/archive.log"
+            exit 1
+          fi
+          grep -E "error:|\*\* ARCHIVE" "$RUNNER_TEMP/archive.log" || true
           test -d "$RUNNER_TEMP/TradeQuote.xcarchive/Products/Applications/TradeQuote.app"
 
       - name: Export and upload to App Store Connect
@@ -207,3 +215,4 @@ jobs:
         run: |
           [ -n "${KEYCHAIN_PATH:-}" ] && security delete-keychain "$KEYCHAIN_PATH" || true
           rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/app.mobileprovision"
+
