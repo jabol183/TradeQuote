@@ -134,6 +134,17 @@ final class WholeNoteTests: XCTestCase {
         XCTAssertEqual(changes.first?.line.workActionRequired, false)
         XCTAssertEqual(changes.first?.line.supply, .customer)
     }
+    func testAnActionOnlyChangeIsNotDiscardedAsUnchangedQuantities() throws {
+        let pending = try XCTUnwrap(lines("Two sockets in kitchen").first)
+        let completed = lines("Two sockets in kitchen. Replace all.")
+        let changes = WorkflowRules.reconcile(completed, existing: [pending])
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes.first?.operation, .update)
+        XCTAssertEqual(changes.first?.line.id, pending.id)
+        XCTAssertEqual(changes.first?.line.title, "Replace sockets")
+        XCTAssertEqual(changes.first?.line.workActionRequired, false)
+        XCTAssertEqual(changes.first?.line.quantity, pending.quantity)
+    }
     func testFactCheckerRejectsTheWrongActionEvenWhenCountsMatch() {
         let line = QuoteLine(title: "Install sockets", category: .labour, source: .note, quantity: 2)
         XCTAssertFalse(ExtractionChecks.problems([line], expected: [.init("socket", 2, action: "replace")]).isEmpty)

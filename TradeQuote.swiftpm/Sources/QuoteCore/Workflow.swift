@@ -238,7 +238,9 @@ public enum WorkflowRules {
                     if revised.specification.isEmpty { revised.specification = old.specification }
                     if revised.supply == .unknown || revised.supply == nil { revised.supply = old.supply }
                 }
-                if old.quantity == revised.quantity && old.specification == revised.specification &&
+                if normalized(old.title) == normalized(revised.title) && old.category == revised.category &&
+                    old.recipeID == revised.recipeID && (old.workActionRequired ?? false) == (revised.workActionRequired ?? false) &&
+                    old.quantity == revised.quantity && old.specification == revised.specification &&
                     (old.disposition ?? .included) == (revised.disposition ?? .included) && old.supply == revised.supply { continue }
                 revised.id = old.id
                 revised.rateID = old.rateID
